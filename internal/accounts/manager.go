@@ -47,12 +47,18 @@ const (
 	EventUploadError     = "upload-error"      // payload: EventPayload
 	EventAuthError       = "auth-error"        // payload: EventPayload
 	EventCacheCleared    = "cache-cleared"      // payload: EventPayload — the dedupe cache hit its size cap and was reset
+	EventNoMatches       = "no-matches"        // payload: EventPayload — poll succeeded but history had zero entries
 )
 
 type EventPayload struct {
 	AccountID string `json:"account_id"`
 	MatchID   string `json:"match_id,omitempty"`
 	Message   string `json:"message,omitempty"`
+	// Manual is true if this event resulted from an explicit "Poll
+	// Now" click rather than the shared scheduled cycle — lets the
+	// frontend log tell the two apart, since the outcome message
+	// itself (e.g. "no matches in history") is otherwise identical.
+	Manual bool `json:"manual,omitempty"`
 }
 
 // runtimeState is in-memory only — never persisted. Rebuilt on
@@ -525,7 +531,7 @@ func (m *Manager) PollAccountNow(ctx context.Context, id string) error {
 		return errors.New("account is not authenticated — reauth first")
 	}
 	m.retryPendingUploads(ctx)
-	if !m.pollAccount(ctx, id, rt.rpc) {
+	if !m.pollAccount(ctx, id, rt.rpc, true) {
 		return errors.New("a poll is already in progress for this account — try again shortly")
 	}
 	return nil
@@ -584,7 +590,7 @@ func (m *Manager) runCycle(ctx context.Context) {
 	m.mu.Unlock()
 
 	for _, t := range targets {
-		m.pollAccount(ctx, t.id, t.rpc)
+		m.pollAccount(ctx, t.id, t.rpc, false)
 	}
 }
 
@@ -593,8 +599,10 @@ func (m *Manager) runCycle(ctx context.Context) {
 // polled (by the scheduled cycle or another manual trigger) —
 // callers that care (PollAccountNow) can surface that as an error;
 // the scheduled cycle just silently skips it, since it'll be picked
-// up on a later tick anyway.
-func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetRPC) bool {
+// up on a later tick anyway. manual is true for an explicit "Poll
+// Now" click, false for the shared scheduled cycle — threaded through
+// to every emitted event so the frontend log can tell them apart.
+func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetRPC, manual bool) bool {
 	m.mu.Lock()
 	if m.polling[id] {
 		m.mu.Unlock()
@@ -609,8 +617,8 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 		m.mu.Unlock()
 	}()
 
-	err := matches.PollOnce(ctx, rpc, func(matchID, replayURL string) {
-		m.handleMatch(ctx, id, matchID, replayURL)
+	matchCount, err := matches.PollOnce(ctx, rpc, func(matchID, replayURL string) {
+		m.handleMatch(ctx, id, matchID, replayURL, manual)
 	})
 
 	m.mu.Lock()
@@ -623,13 +631,15 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 	_ = m.persist()
 
 	if err != nil {
-		m.emit(EventAuthError, EventPayload{AccountID: id, Message: err.Error()})
+		m.emit(EventAuthError, EventPayload{AccountID: id, Message: err.Error(), Manual: manual})
+	} else if matchCount == 0 {
+		m.emit(EventNoMatches, EventPayload{AccountID: id, Message: "poll succeeded — no matches in history", Manual: manual})
 	}
 	m.emit(EventAccountsChanged, EventPayload{})
 	return true
 }
 
-func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL string) {
+func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL string, manual bool) {
 	m.mu.Lock()
 	idx := m.indexOf(accountID)
 	if idx == -1 {
@@ -644,26 +654,26 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 		return
 	}
 
-	m.emit(EventMatchDetected, EventPayload{AccountID: accountID, MatchID: matchID})
+	m.emit(EventMatchDetected, EventPayload{AccountID: accountID, MatchID: matchID, Manual: manual})
 
 	if replayURL == "" {
-		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "no replay URL in match history"})
+		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "no replay URL in match history", Manual: manual})
 		return
 	}
 	if !hasToken {
-		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "no ballchasing token set for this account"})
+		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "no ballchasing token set for this account", Manual: manual})
 		return
 	}
 	accountSecrets, err := secrets.Load(accountID)
 	if err != nil || accountSecrets.BallchasingToken == "" {
-		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "could not read ballchasing token from secure storage"})
+		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "could not read ballchasing token from secure storage", Manual: manual})
 		return
 	}
 	token := accountSecrets.BallchasingToken
 
 	path, err := matches.DownloadReplay(replayURL)
 	if err != nil {
-		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error()})
+		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
 		return
 	}
 
@@ -677,7 +687,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 		if cacheErr := cachePendingReplay(path, accountID, matchID); cacheErr != nil {
 			log.Printf("failed to cache replay for retry (%s/%s): %v", accountID, matchID, cacheErr)
 		}
-		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error()})
+		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
 		return
 	}
 	// Uploaded successfully — the temp file has served its purpose.
@@ -692,6 +702,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 			m.emit(EventCacheCleared, EventPayload{
 				AccountID: accountID,
 				Message:   fmt.Sprintf("dedupe cache exceeded %d bytes and was reset", maxUploadedMatchesCacheBytes),
+				Manual:    manual,
 			})
 			m.mu.Lock()
 		}
@@ -699,7 +710,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 	m.mu.Unlock()
 
 	_ = m.persist()
-	m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location})
+	m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
 }
 
 // indexOf must be called with m.mu already held.

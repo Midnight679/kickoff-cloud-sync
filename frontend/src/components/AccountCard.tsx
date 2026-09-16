@@ -63,9 +63,13 @@ export function AccountCard({ account, onChanged, onReauth, onLog }: Props) {
   }
 
   async function pollNow() {
+    // Log before awaiting, not after — PollAccountNow blocks on the Go
+    // side until the whole poll finishes, so its outcome event (e.g.
+    // "poll succeeded") can otherwise reach the log before this line
+    // does, making a manual poll look like it started after it ended.
+    onLog(`[${fmtName(account)}] manual poll triggered.`);
     await run(async () => {
       await api.pollAccountNow(account.id);
-      onLog(`[${fmtName(account)}] manual poll triggered.`);
     }, "polling");
   }
 

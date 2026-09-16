@@ -1,6 +1,6 @@
 # RL Replay Uploader (Kickoff Cloud Sync)
 
-**Version 0.1.2**
+**Version 0.1.3**
 
 A system-tray app that watches recent Rocket League matches across
 multiple accounts and auto-uploads replays to
@@ -115,7 +115,10 @@ returns both fields separately.
 Events (`runtime.EventsEmit`, payload is `accounts.EventPayload` with
 an `account_id` field so the frontend can route to the right box):
 `accounts-changed`, `match-detected`, `upload-complete`,
-`upload-error`, `auth-error`, `cache-cleared`. The React app in
+`upload-error`, `auth-error`, `cache-cleared`, `no-matches` (poll
+succeeded but history had zero entries — distinct from an auth error,
+so the log can tell "nothing happened" apart from "something broke").
+The React app in
 `frontend/src` wires all of this up — `App.tsx` holds the account
 list/modal state, `api.ts` is a hand-typed wrapper around
 `window.go.main.App.*` (kept in sync with `app.go` by hand rather than
@@ -287,7 +290,30 @@ Recommended order, matching what we discussed:
 
 ## Version history
 
-### 0.1.2 (current, unpushed)
+### 0.1.3
+- Added an explicit `no-matches` event: `matches.PollOnce` now returns
+  the match count alongside its error, so `Manager.pollAccount` can
+  tell "poll succeeded, history was just empty" apart from "poll
+  failed" or "found matches." Surfaced in the event log as `poll
+  succeeded — no matches in history`. Found this gap from live manual
+  QA — after adding a real account, `uploaded_matches` staying `{}`
+  was ambiguous between a clean empty poll and a silent failure, and
+  the only way to tell them apart was manually checking the pending-
+  uploads cache and dev-server logs.
+- `EventPayload` gained a `Manual` field, threaded through
+  `pollAccount`/`handleMatch` and every event they emit
+  (`no-matches`, `match-detected`, `upload-complete`, `upload-error`,
+  `auth-error`, `cache-cleared`), so the frontend log can tell a
+  scheduled poll's outcome apart from a manual "Poll Now" click —
+  previously both produced an identical message.
+- Fixed a related ordering bug in `AccountCard.tsx`: the "manual poll
+  triggered" log line was appended *after* `await
+  api.pollAccountNow(...)` resolved, but that call blocks on the Go
+  side until the whole poll finishes — so the poll's own outcome
+  event could reach the log before the line announcing the poll had
+  even started. Moved the log call to before the await.
+
+### 0.1.2
 - Built the real frontend: React + TypeScript + Vite, scaffolded via
   `wails init -t react-ts` (harvested for build tooling only — our own
   `main.go`/`app.go`/`tray.go` were kept as-is, not overwritten).

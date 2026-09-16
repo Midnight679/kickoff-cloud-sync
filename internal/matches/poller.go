@@ -23,14 +23,19 @@ type MatchHandler func(matchID, replayURL string)
 // than each account keeping its own timer — this function is the
 // unit of work that cycle calls per account, and is also what a
 // manual "poll now" button calls directly.
-func PollOnce(ctx context.Context, rpc *rlapi.PsyNetRPC, onMatch MatchHandler) error {
+//
+// matchCount is the total number of entries in the history response
+// (regardless of whether onMatch's caller treats any of them as
+// new) — the caller uses this to tell "the poll succeeded and found
+// nothing" apart from "the poll failed before it could check."
+func PollOnce(ctx context.Context, rpc *rlapi.PsyNetRPC, onMatch MatchHandler) (matchCount int, err error) {
 	entries, err := rpc.GetMatchHistory(ctx)
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	for _, m := range entries {
 		onMatch(m.Match.MatchGUID, m.ReplayUrl)
 	}
-	return nil
+	return len(entries), nil
 }

@@ -25,4 +25,7 @@ export interface EventPayload {
   account_id: string;
   match_id?: string;
   message?: string;
+  // true if this event resulted from an explicit "Poll Now" click
+  // rather than the shared scheduled cycle.
+  manual?: boolean;
 }

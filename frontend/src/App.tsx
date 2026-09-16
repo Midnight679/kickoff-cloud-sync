@@ -23,6 +23,11 @@ export default function App() {
     setLog((prev) => [line, ...prev].slice(0, MAX_LOG_ENTRIES));
   }, []);
 
+  // Poll-triggered events all carry `manual` — surfacing it in the
+  // message itself, since otherwise a scheduled poll's "no matches"
+  // line looks identical to a manual one.
+  const trigger = (p: EventPayload) => (p.manual ? "manual" : "scheduled");
+
   const refreshAccounts = useCallback(() => {
     api.listAccounts().then(setAccounts);
   }, []);
@@ -30,11 +35,16 @@ export default function App() {
   useEffect(() => {
     refreshAccounts();
 
-    const onMatch = (p: EventPayload) => appendLog(`[${p.account_id}] match detected: ${p.match_id}`);
-    const onUploadOk = (p: EventPayload) => appendLog(`[${p.account_id}] uploaded: ${p.message}`);
-    const onUploadErr = (p: EventPayload) => appendLog(`[${p.account_id}] upload error: ${p.message}`);
-    const onAuthErr = (p: EventPayload) => appendLog(`[${p.account_id}] auth error: ${p.message}`);
-    const onCacheCleared = (p: EventPayload) => appendLog(`[${p.account_id}] ${p.message}`);
+    const onMatch = (p: EventPayload) =>
+      appendLog(`[${p.account_id}] match detected: ${p.match_id} (${trigger(p)})`);
+    const onUploadOk = (p: EventPayload) =>
+      appendLog(`[${p.account_id}] uploaded: ${p.message} (${trigger(p)})`);
+    const onUploadErr = (p: EventPayload) =>
+      appendLog(`[${p.account_id}] upload error: ${p.message} (${trigger(p)})`);
+    const onAuthErr = (p: EventPayload) =>
+      appendLog(`[${p.account_id}] auth error: ${p.message} (${trigger(p)})`);
+    const onCacheCleared = (p: EventPayload) => appendLog(`[${p.account_id}] ${p.message} (${trigger(p)})`);
+    const onNoMatches = (p: EventPayload) => appendLog(`[${p.account_id}] ${p.message} (${trigger(p)})`);
 
     EventsOn("accounts-changed", refreshAccounts);
     EventsOn("match-detected", onMatch);
@@ -42,6 +52,7 @@ export default function App() {
     EventsOn("upload-error", onUploadErr);
     EventsOn("auth-error", onAuthErr);
     EventsOn("cache-cleared", onCacheCleared);
+    EventsOn("no-matches", onNoMatches);
 
     return () => {
       EventsOff("accounts-changed");
@@ -50,6 +61,7 @@ export default function App() {
       EventsOff("upload-error");
       EventsOff("auth-error");
       EventsOff("cache-cleared");
+      EventsOff("no-matches");
     };
   }, [refreshAccounts, appendLog]);
 
