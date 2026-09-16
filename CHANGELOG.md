@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.1.9
+- **Per-account replay visibility**: each account now has its own public/unlisted/private dropdown, applied to every future upload from that account. Defaults to public; doesn't affect replays already uploaded.
+- **Real Windows installer**, built and tested end-to-end via NSIS: installs per-user (no admin/UAC needed), creates working Start Menu and desktop shortcuts, and shows up correctly in Add/Remove Programs. Confirmed on a real install — including that toast notifications work correctly with Wails' stock shortcut, no extra customization needed.
+- **Uninstall now offers to remove local data**: a prompt asks whether to also delete saved accounts, settings, and cached credentials; declining leaves everything in place for a future reinstall. The uninstaller also terminates a running instance first (the app hides to the tray rather than quitting) and cleans up the "launch at startup" registry entry if it was enabled.
+- Fixed `THIRD_PARTY_LICENSES.md`: removed a section describing build-only tooling that was never actually shipped or a real dependency.
+
 ## 0.1.8
 - **Custom app icon**: replaced the default Wails icon everywhere — the compiled `.exe`, taskbar, window title bar, and system tray — with a car-on-a-cloud design in Rocket League's default blue.
 - **Tray error indicator**: the tray icon now shows a small red badge whenever any account needs reauthentication, mirroring the settings gear's error state so it's visible even while the window is hidden. Clears automatically once resolved.
