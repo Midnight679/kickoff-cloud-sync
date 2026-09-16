@@ -74,7 +74,6 @@ The app polls Epic's match history API for each connected account, downloads any
 - See [Disclaimer](#disclaimer) above regarding the reverse-engineered API and the possibility of getting logged out of your party/social session while playing.
 - Epic's match history API only exposes a recent-matches window (the same one shown in-game — the most recent 20), so very old matches won't be found. The default poll interval comfortably covers this.
 - ballchasing.com's free API tier caps uploads at 10/day — anything beyond that is queued and retried automatically once the quota resets
-- No custom tray icon yet (text-only tooltip)
 - Replay visibility isn't yet configurable from the UI
 
 ## License

@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.8
+- **Custom app icon**: replaced the default Wails icon everywhere — the compiled `.exe`, taskbar, window title bar, and system tray — with a car-on-a-cloud design in Rocket League's default blue.
+- **Tray error indicator**: the tray icon now shows a small red badge whenever any account needs reauthentication, mirroring the settings gear's error state so it's visible even while the window is hidden. Clears automatically once resolved.
+- Fixed a `.gitignore` gap where the blanket `/build/` rule had silently kept the app's icon and Windows build config (`appicon.png`, `icon.ico`, `info.json`, `wails.exe.manifest`) out of version control since the repo was first set up. All four are now tracked; actual build output (`build/bin/`, generated binaries) stays ignored.
+
 ## 0.1.7
 - **Security review**: ran `govulncheck` (Go) and `npm audit` against every dependency — zero known vulnerabilities in either. Manually reviewed the full codebase for common exploit classes and fixed three findings, all low-severity given this is a local single-user desktop app with no exposed network surface, but hardened anyway:
   - Match/account IDs are now validated (alphanumeric-only) before being used to construct any file path, closing a theoretical path-traversal gap in the pending-uploads cache.
