@@ -8,8 +8,8 @@ import (
 // before wails.Run() (which also blocks) is called in main.go.
 func runTray(onShow func(), onQuit func()) {
 	systray.Run(func() {
-		systray.SetTitle("RL Replay Uploader")
-		systray.SetTooltip("Rocket League Replay Uploader")
+		systray.SetTitle("Kickoff Cloud Sync")
+		systray.SetTooltip("Kickoff Cloud Sync — Rocket League replay uploader")
 		// TODO: replace with a real .ico/.png asset — see
 		// frontend or an /assets folder for the icon bytes.
 

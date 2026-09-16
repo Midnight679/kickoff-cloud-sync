@@ -45,6 +45,7 @@ export default function App() {
       appendLog(`[${p.account_id}] auth error: ${p.message} (${trigger(p)})`);
     const onCacheCleared = (p: EventPayload) => appendLog(`[${p.account_id}] ${p.message} (${trigger(p)})`);
     const onNoMatches = (p: EventPayload) => appendLog(`[${p.account_id}] ${p.message} (${trigger(p)})`);
+    const onReconnected = (p: EventPayload) => appendLog(`[${p.account_id}] ${p.message} (${trigger(p)})`);
 
     EventsOn("accounts-changed", refreshAccounts);
     EventsOn("match-detected", onMatch);
@@ -53,6 +54,7 @@ export default function App() {
     EventsOn("auth-error", onAuthErr);
     EventsOn("cache-cleared", onCacheCleared);
     EventsOn("no-matches", onNoMatches);
+    EventsOn("reconnected", onReconnected);
 
     return () => {
       EventsOff("accounts-changed");
@@ -62,6 +64,7 @@ export default function App() {
       EventsOff("auth-error");
       EventsOff("cache-cleared");
       EventsOff("no-matches");
+      EventsOff("reconnected");
     };
   }, [refreshAccounts, appendLog]);
 

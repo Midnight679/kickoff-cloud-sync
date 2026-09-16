@@ -1,4 +1,4 @@
-module github.com/yourusername/rl-replay-uploader
+module github.com/Midnight679/kickoff-cloud-sync
 
 go 1.25.0
 

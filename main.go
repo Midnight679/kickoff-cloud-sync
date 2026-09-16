@@ -27,7 +27,7 @@ func main() {
 	)
 
 	err := wails.Run(&options.App{
-		Title:  "RL Replay Uploader",
+		Title:  "Kickoff Cloud Sync",
 		Width:  480,
 		Height: 640,
 		AssetServer: &assetserver.Options{

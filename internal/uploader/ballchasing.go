@@ -10,7 +10,7 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/yourusername/rl-replay-uploader/internal/httpclient"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/httpclient"
 )
 
 const uploadURL = "https://ballchasing.com/api/v2/upload"

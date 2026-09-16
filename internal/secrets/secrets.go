@@ -18,7 +18,7 @@ import (
 // service is the keyring "service" name every entry is filed under;
 // the account ID is the keyring "user" for that service. Together
 // they're the lookup key go-keyring uses under the hood.
-const service = "rl-replay-uploader"
+const service = "kickoff-cloud-sync"
 
 // ErrUnavailable wraps any keyring error that isn't a simple "not
 // found" — e.g. no keyring daemon running on this Linux session.

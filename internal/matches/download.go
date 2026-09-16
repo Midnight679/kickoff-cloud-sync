@@ -6,7 +6,7 @@ import (
 	"net/http"
 	"os"
 
-	"github.com/yourusername/rl-replay-uploader/internal/httpclient"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/httpclient"
 )
 
 // DownloadReplay pulls the replay bytes directly from the cloud

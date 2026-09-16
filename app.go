@@ -6,9 +6,9 @@ import (
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/yourusername/rl-replay-uploader/internal/accounts"
-	"github.com/yourusername/rl-replay-uploader/internal/auth"
-	"github.com/yourusername/rl-replay-uploader/internal/config"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/accounts"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/auth"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/config"
 )
 
 type App struct {

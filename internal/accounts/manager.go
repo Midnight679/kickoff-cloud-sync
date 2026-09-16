@@ -14,12 +14,12 @@ import (
 
 	"github.com/dank/rlapi"
 
-	"github.com/yourusername/rl-replay-uploader/internal/auth"
-	"github.com/yourusername/rl-replay-uploader/internal/config"
-	"github.com/yourusername/rl-replay-uploader/internal/httpclient"
-	"github.com/yourusername/rl-replay-uploader/internal/matches"
-	"github.com/yourusername/rl-replay-uploader/internal/secrets"
-	"github.com/yourusername/rl-replay-uploader/internal/uploader"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/auth"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/config"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/httpclient"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/matches"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/secrets"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/uploader"
 )
 
 // maxUploadedMatchesCacheBytes caps the size of a single account's
@@ -48,6 +48,7 @@ const (
 	EventAuthError       = "auth-error"        // payload: EventPayload
 	EventCacheCleared    = "cache-cleared"      // payload: EventPayload — the dedupe cache hit its size cap and was reset
 	EventNoMatches       = "no-matches"        // payload: EventPayload — poll succeeded but history had zero entries
+	EventReconnected     = "reconnected"       // payload: EventPayload — dropped connection (e.g. DuplicateLogin) silently re-established
 )
 
 type EventPayload struct {
@@ -157,16 +158,32 @@ func (m *Manager) persist() error {
 }
 
 // Init attempts a silent login (via saved refresh token) for every
-// persisted account. Call this once at app startup, before showing
-// the account list. Accounts whose token has expired end up with
-// StatusNeedsReauth rather than popping a browser window — reauth
-// is an explicit user action via ReauthAccount.
+// non-paused persisted account. Call this once at app startup, before
+// showing the account list. Accounts whose token has expired end up
+// with StatusNeedsReauth rather than popping a browser window —
+// reauth is an explicit user action via ReauthAccount.
+//
+// A paused account gets no Epic API activity at all here — it's
+// optimistically marked Authenticated with no live connection yet,
+// and ensureConnected verifies/reconnects it lazily the first time
+// it's actually polled (manually, or after being resumed), flipping
+// it to NeedsReauth then if the stored token turns out to be dead.
+// Without this, launching the app while a paused account's owner is
+// mid-match could trigger the same DuplicateLogin collision pausing
+// is meant to avoid.
 func (m *Manager) Init(ctx context.Context) {
 	m.mu.Lock()
 	accountsSnapshot := append([]config.Account{}, m.cfg.Accounts...)
 	m.mu.Unlock()
 
 	for _, acct := range accountsSnapshot {
+		if acct.Paused {
+			m.mu.Lock()
+			m.runtimes[acct.ID] = &runtimeState{rpc: nil, status: StatusAuthenticated}
+			m.mu.Unlock()
+			continue
+		}
+
 		status := StatusNeedsReauth
 		var rpc *rlapi.PsyNetRPC
 
@@ -530,7 +547,7 @@ func (m *Manager) PollAccountNow(ctx context.Context, id string) error {
 	if !ok || rt.status != StatusAuthenticated {
 		return errors.New("account is not authenticated — reauth first")
 	}
-	m.retryPendingUploads(ctx)
+	m.retryPendingUploads(ctx, true)
 	if !m.pollAccount(ctx, id, rt.rpc, true) {
 		return errors.New("a poll is already in progress for this account — try again shortly")
 	}
@@ -571,7 +588,7 @@ func (m *Manager) StartScheduledPolling(ctx context.Context) {
 }
 
 func (m *Manager) runCycle(ctx context.Context) {
-	m.retryPendingUploads(ctx)
+	m.retryPendingUploads(ctx, false)
 
 	m.mu.Lock()
 	type target struct {
@@ -592,6 +609,69 @@ func (m *Manager) runCycle(ctx context.Context) {
 	for _, t := range targets {
 		m.pollAccount(ctx, t.id, t.rpc, false)
 	}
+}
+
+// ensureConnected returns a live PsyNetRPC connection for the given
+// account, silently reconnecting via the stored Epic refresh token if
+// the one passed in has dropped. This happens routinely in practice:
+// Psyonix closes our connection with "DuplicateLogin" whenever the
+// real Rocket League client (or another instance of this app) logs
+// into the same account — i.e. every time the user actually plays a
+// match, which is exactly when a background uploader needs to keep
+// working. Without this, a dropped connection would mean a full
+// browser-based reauth after every single gaming session.
+//
+// Returns ok=false if reconnecting also fails (or there's no stored
+// refresh token to try), having already flagged the account
+// needs_reauth and emitted an auth-error — the caller can just bail
+// out of this poll cycle in that case.
+func (m *Manager) ensureConnected(ctx context.Context, id string, rpc *rlapi.PsyNetRPC, manual bool) (*rlapi.PsyNetRPC, bool) {
+	if rpc != nil && rpc.IsConnected() {
+		return rpc, true
+	}
+
+	accountSecrets, err := secrets.Load(id)
+	if err != nil || accountSecrets.EpicRefreshToken == "" {
+		m.flagNeedsReauth(id, "connection lost and no stored refresh token to reconnect with", manual)
+		return nil, false
+	}
+
+	result, err := auth.EpicLoginWithRefreshToken(ctx, accountSecrets.EpicRefreshToken)
+	if err != nil {
+		m.flagNeedsReauth(id, fmt.Sprintf("connection lost and silent reconnect failed: %v", err), manual)
+		return nil, false
+	}
+
+	// Epic rotates the refresh token on every use — persist the new
+	// one now, or the next reconnect attempt will fail with the old,
+	// now-consumed token.
+	accountSecrets.EpicRefreshToken = result.RefreshToken
+	if err := secrets.Save(id, accountSecrets); err != nil {
+		log.Printf("failed to persist rotated refresh token for %s: %v", id, err)
+	}
+
+	m.mu.Lock()
+	if rt, ok := m.runtimes[id]; ok {
+		rt.rpc = result.RPC
+		rt.status = StatusAuthenticated
+	}
+	m.mu.Unlock()
+
+	m.emit(EventReconnected, EventPayload{AccountID: id, Message: "connection was dropped (e.g. by DuplicateLogin) and has been silently re-established", Manual: manual})
+	return result.RPC, true
+}
+
+// flagNeedsReauth marks an account as needing reauth and emits an
+// auth-error with the given message — shared by ensureConnected and
+// (indirectly) anything else that discovers the stored connection is
+// unusable.
+func (m *Manager) flagNeedsReauth(id, message string, manual bool) {
+	m.mu.Lock()
+	if rt, ok := m.runtimes[id]; ok {
+		rt.status = StatusNeedsReauth
+	}
+	m.mu.Unlock()
+	m.emit(EventAuthError, EventPayload{AccountID: id, Message: message, Manual: manual})
 }
 
 // pollAccount does the actual poll work for one account. It returns
@@ -617,8 +697,25 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 		m.mu.Unlock()
 	}()
 
+	rpc, ok := m.ensureConnected(ctx, id, rpc, manual)
+	if !ok {
+		m.emit(EventAccountsChanged, EventPayload{})
+		return true
+	}
+
+	// newCount tracks matches handleMatch actually had to do something
+	// with (or is still working on via the pending-uploads retry) —
+	// distinct from matchCount, which is every entry in history
+	// regardless of whether it's already fully accounted for. Without
+	// this distinction, an account with a full history of
+	// already-uploaded matches would poll successfully every cycle
+	// and emit nothing at all, which looks identical to a silent
+	// failure.
+	newCount := 0
 	matchCount, err := matches.PollOnce(ctx, rpc, func(matchID, replayURL string) {
-		m.handleMatch(ctx, id, matchID, replayURL, manual)
+		if m.handleMatch(ctx, id, matchID, replayURL, manual) {
+			newCount++
+		}
 	})
 
 	m.mu.Lock()
@@ -632,49 +729,66 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 
 	if err != nil {
 		m.emit(EventAuthError, EventPayload{AccountID: id, Message: err.Error(), Manual: manual})
-	} else if matchCount == 0 {
-		m.emit(EventNoMatches, EventPayload{AccountID: id, Message: "poll succeeded — no matches in history", Manual: manual})
+	} else if newCount == 0 {
+		msg := "poll succeeded — no matches in history"
+		if matchCount > 0 {
+			msg = fmt.Sprintf("poll succeeded — %d match(es) in history, all already uploaded", matchCount)
+		}
+		m.emit(EventNoMatches, EventPayload{AccountID: id, Message: msg, Manual: manual})
 	}
 	m.emit(EventAccountsChanged, EventPayload{})
 	return true
 }
 
-func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL string, manual bool) {
+// handleMatch returns true if this match needed any attention this
+// poll (freshly detected, or still waiting on a pending-upload
+// retry) — false if it was already fully accounted for. pollAccount
+// uses this to tell "nothing new" apart from "poll didn't run."
+func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL string, manual bool) bool {
 	m.mu.Lock()
 	idx := m.indexOf(accountID)
 	if idx == -1 {
 		m.mu.Unlock()
-		return
+		return false
 	}
 	_, alreadyUploaded := m.cfg.Accounts[idx].UploadedMatches[matchID]
 	hasToken := m.cfg.Accounts[idx].HasBallchasingToken
 	m.mu.Unlock()
 
 	if alreadyUploaded {
-		return
+		return false
+	}
+
+	if hasPendingReplay(accountID, matchID) {
+		// Already downloaded and cached from an earlier poll, stuck on
+		// a retryable failure (e.g. ballchasing's daily upload quota)
+		// — retryPendingUploads already retries it once per cycle, so
+		// skip re-downloading and re-attempting the upload here too.
+		// Still counts as "needs attention," just not by this path.
+		return true
 	}
 
 	m.emit(EventMatchDetected, EventPayload{AccountID: accountID, MatchID: matchID, Manual: manual})
 
 	if replayURL == "" {
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "no replay URL in match history", Manual: manual})
-		return
+		return true
 	}
 	if !hasToken {
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "no ballchasing token set for this account", Manual: manual})
-		return
+		return true
 	}
 	accountSecrets, err := secrets.Load(accountID)
 	if err != nil || accountSecrets.BallchasingToken == "" {
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "could not read ballchasing token from secure storage", Manual: manual})
-		return
+		return true
 	}
 	token := accountSecrets.BallchasingToken
 
 	path, err := matches.DownloadReplay(replayURL)
 	if err != nil {
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
-		return
+		return true
 	}
 
 	result, err := uploader.UploadReplay(token, path, "public")
@@ -688,7 +802,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 			log.Printf("failed to cache replay for retry (%s/%s): %v", accountID, matchID, cacheErr)
 		}
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
-		return
+		return true
 	}
 	// Uploaded successfully — the temp file has served its purpose.
 	_ = os.Remove(path)
@@ -711,6 +825,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 
 	_ = m.persist()
 	m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
+	return true
 }
 
 // indexOf must be called with m.mu already held.

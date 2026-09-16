@@ -62,7 +62,7 @@ func configPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	appDir := filepath.Join(dir, "rl-replay-uploader")
+	appDir := filepath.Join(dir, "kickoff-cloud-sync")
 	if err := os.MkdirAll(appDir, 0o700); err != nil {
 		return "", err
 	}
@@ -78,7 +78,7 @@ func PendingUploadsDir() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	pendingDir := filepath.Join(dir, "rl-replay-uploader", "pending-uploads")
+	pendingDir := filepath.Join(dir, "kickoff-cloud-sync", "pending-uploads")
 	if err := os.MkdirAll(pendingDir, 0o700); err != nil {
 		return "", err
 	}

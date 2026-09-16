@@ -8,9 +8,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/yourusername/rl-replay-uploader/internal/config"
-	"github.com/yourusername/rl-replay-uploader/internal/secrets"
-	"github.com/yourusername/rl-replay-uploader/internal/uploader"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/config"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/secrets"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/uploader"
 )
 
 // pendingFileSeparator joins accountID and matchID in the cached
@@ -58,12 +58,30 @@ func cachePendingReplay(srcPath, accountID, matchID string) error {
 	return os.Remove(srcPath)
 }
 
+// hasPendingReplay reports whether a match's replay is already
+// downloaded and cached for retry (see cachePendingReplay). handleMatch
+// checks this before doing a fresh download so a match stuck on a
+// retryable failure (e.g. ballchasing's daily upload quota) isn't
+// redundantly re-downloaded and re-attempted on every poll on top of
+// retryPendingUploads already handling it once per cycle.
+func hasPendingReplay(accountID, matchID string) bool {
+	dir, err := config.PendingUploadsDir()
+	if err != nil {
+		return false
+	}
+	_, err = os.Stat(filepath.Join(dir, accountID+pendingFileSeparator+matchID+".replay"))
+	return err == nil
+}
+
 // retryPendingUploads scans the pending-uploads directory and
 // attempts each cached replay again, using that account's *current*
 // ballchasing token (so a token fixed after the original failure
 // works without any other action). Runs once per scheduled poll
 // cycle, before the normal per-account match check — see runCycle.
-func (m *Manager) retryPendingUploads(ctx context.Context) {
+// manual is threaded through to emitted events the same as elsewhere,
+// so the frontend log can tell a manual "Poll Now" retry pass apart
+// from a scheduled one.
+func (m *Manager) retryPendingUploads(ctx context.Context, manual bool) {
 	dir, err := config.PendingUploadsDir()
 	if err != nil {
 		return
@@ -118,6 +136,7 @@ func (m *Manager) retryPendingUploads(ctx context.Context) {
 		result, err := uploader.UploadReplay(token, fullPath, "public")
 		if err != nil {
 			log.Printf("retry upload failed for %s: %v", entry.Name(), err)
+			m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
 			continue // leave the file in place for the next cycle
 		}
 
@@ -131,7 +150,7 @@ func (m *Manager) retryPendingUploads(ctx context.Context) {
 		_ = m.persist()
 
 		_ = os.Remove(fullPath)
-		m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location})
+		m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
 	}
 }
 

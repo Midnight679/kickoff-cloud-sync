@@ -6,20 +6,24 @@ interface Props {
 }
 
 export function SettingsBar({ onLog }: Props) {
-  const [pollInterval, setPollInterval] = useState<number | "">("");
+  // The backend (GetPollIntervalSecs/SetPollIntervalSecs) always
+  // deals in seconds — this field just displays/edits it in minutes,
+  // converting at the boundary.
+  const [pollIntervalMins, setPollIntervalMins] = useState<number | "">("");
   const [httpTimeout, setHttpTimeout] = useState<number | "">("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    api.getPollIntervalSecs().then(setPollInterval);
+    api.getPollIntervalSecs().then((secs) => setPollIntervalMins(Math.round(secs / 60)));
     api.getHttpTimeoutSecs().then(setHttpTimeout);
   }, []);
 
   async function savePollInterval() {
-    if (pollInterval === "") return;
+    if (pollIntervalMins === "") return;
     try {
-      await api.setPollIntervalSecs(pollInterval);
-      onLog(`Poll interval set to ${pollInterval}s.`);
+      const secs = pollIntervalMins * 60;
+      await api.setPollIntervalSecs(secs);
+      onLog(`Poll interval set to ${pollIntervalMins} min.`);
     } catch (e) {
       setError(errorMessage(e));
     }
@@ -38,13 +42,13 @@ export function SettingsBar({ onLog }: Props) {
   return (
     <div className="settings-bar">
       <div className="settings-bar__field">
-        <label>Poll interval (secs)</label>
+        <label>Poll interval (mins)</label>
         <input
           className="input input--narrow"
           type="number"
-          min={10}
-          value={pollInterval}
-          onChange={(e) => setPollInterval(e.target.value === "" ? "" : Number(e.target.value))}
+          min={1}
+          value={pollIntervalMins}
+          onChange={(e) => setPollIntervalMins(e.target.value === "" ? "" : Number(e.target.value))}
         />
         <button className="btn" onClick={savePollInterval}>
           Save
