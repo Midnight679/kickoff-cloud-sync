@@ -49,6 +49,7 @@ const (
 	EventCacheCleared    = "cache-cleared"      // payload: EventPayload — the dedupe cache hit its size cap and was reset
 	EventNoMatches       = "no-matches"        // payload: EventPayload — poll succeeded but history had zero entries
 	EventReconnected     = "reconnected"       // payload: EventPayload — dropped connection (e.g. DuplicateLogin) silently re-established
+	EventNeedsReauth     = "needs-reauth"      // payload: EventPayload — fired once per transition into needs_reauth (not on every retry), for a one-time OS notification
 )
 
 type EventPayload struct {
@@ -206,6 +207,10 @@ func (m *Manager) Init(ctx context.Context) {
 		m.mu.Lock()
 		m.runtimes[acct.ID] = &runtimeState{rpc: rpc, status: status}
 		m.mu.Unlock()
+
+		if status == StatusNeedsReauth {
+			m.emitNeedsReauthNotice(acct.ID)
+		}
 	}
 	m.emit(EventAccountsChanged, EventPayload{})
 }
@@ -664,14 +669,58 @@ func (m *Manager) ensureConnected(ctx context.Context, id string, rpc *rlapi.Psy
 // flagNeedsReauth marks an account as needing reauth and emits an
 // auth-error with the given message — shared by ensureConnected and
 // (indirectly) anything else that discovers the stored connection is
-// unusable.
+// unusable. Also emits EventNeedsReauth exactly once per transition
+// into this state — not on every retry while it stays broken — so
+// the App layer can fire a one-time OS notification instead of
+// spamming the user every poll cycle for a persistently dead account.
 func (m *Manager) flagNeedsReauth(id, message string, manual bool) {
 	m.mu.Lock()
+	alreadyFlagged := false
 	if rt, ok := m.runtimes[id]; ok {
+		alreadyFlagged = rt.status == StatusNeedsReauth
 		rt.status = StatusNeedsReauth
 	}
 	m.mu.Unlock()
+
 	m.emit(EventAuthError, EventPayload{AccountID: id, Message: message, Manual: manual})
+
+	if !alreadyFlagged {
+		m.emitNeedsReauthNotice(id)
+	}
+}
+
+// accountLabel returns a display-friendly "DisplayName (FriendlyName)"
+// label for an account, or just DisplayName if no friendly name is
+// set. Must be called with m.mu already held.
+func (m *Manager) accountLabel(id string) string {
+	idx := m.indexOf(id)
+	if idx == -1 {
+		return ""
+	}
+	label := m.cfg.Accounts[idx].DisplayName
+	if m.cfg.Accounts[idx].FriendlyName != "" {
+		label = fmt.Sprintf("%s (%s)", label, m.cfg.Accounts[idx].FriendlyName)
+	}
+	return label
+}
+
+// emitNeedsReauthNotice emits EventNeedsReauth for the given account,
+// for the App layer to turn into a one-time OS notification. Shared
+// by flagNeedsReauth (a live connection died mid-session) and Init
+// (an account's stored token was already dead at app startup) — both
+// are equally "this needs your attention," and in practice a token
+// expiring while the app was closed is the more common of the two.
+func (m *Manager) emitNeedsReauthNotice(id string) {
+	m.mu.Lock()
+	label := m.accountLabel(id)
+	m.mu.Unlock()
+	if label == "" {
+		return
+	}
+	m.emit(EventNeedsReauth, EventPayload{
+		AccountID: id,
+		Message:   fmt.Sprintf("%s needs to be reauthenticated — replays aren't being checked for this account.", label),
+	})
 }
 
 // pollAccount does the actual poll work for one account. It returns

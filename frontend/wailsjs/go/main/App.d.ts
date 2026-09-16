@@ -16,6 +16,8 @@ export function GetHTTPTimeoutSecs():Promise<number>;
 
 export function GetPollIntervalSecs():Promise<number>;
 
+export function GetServerLogs():Promise<Array<string>>;
+
 export function ListAccounts():Promise<Array<accounts.AccountView>>;
 
 export function PauseAccount(arg1:string):Promise<void>;

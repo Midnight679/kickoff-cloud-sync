@@ -4,11 +4,14 @@ import (
 	"context"
 	"log"
 
+	"git.sr.ht/~jackmordaunt/go-toast/v2"
+
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 
 	"github.com/Midnight679/kickoff-cloud-sync/internal/accounts"
 	"github.com/Midnight679/kickoff-cloud-sync/internal/auth"
 	"github.com/Midnight679/kickoff-cloud-sync/internal/config"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/logbuf"
 )
 
 type App struct {
@@ -31,19 +34,50 @@ func NewApp() *App {
 		// only run from startup() too, so ctx is always populated
 		// by the time an event actually fires.
 		runtime.EventsEmit(app.ctx, name, payload)
+
+		if name == accounts.EventNeedsReauth {
+			go sendReauthNotification(payload.Message)
+		}
 	})
 	return app
+}
+
+// sendReauthNotification fires a native OS notification. Best-effort:
+// a failure here (e.g. no notification server, permissions denied)
+// only logs — it must never take down the poll cycle that triggered
+// it.
+func sendReauthNotification(body string) {
+	n := toast.Notification{
+		AppID: notifyAUMID,
+		Title: "Kickoff Cloud Sync",
+		Body:  body,
+	}
+	if err := n.Push(); err != nil {
+		log.Printf("failed to send reauth notification: %v", err)
+	}
 }
 
 // startup is called by Wails once the frontend is ready.
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
+	logbuf.OnWrite(func(line string) {
+		runtime.EventsEmit(a.ctx, "server-log", line)
+	})
+
 	pollCtx, cancel := context.WithCancel(ctx)
 	a.cancel = cancel
 
 	a.mgr.Init(pollCtx)
 	a.mgr.StartScheduledPolling(pollCtx)
+}
+
+// GetServerLogs returns everything currently buffered from the
+// standard log package (see internal/logbuf) — up to the last 1000
+// lines, oldest first. Combine with the "server-log" event for live
+// updates after this initial snapshot.
+func (a *App) GetServerLogs() []string {
+	return logbuf.Lines()
 }
 
 func (a *App) shutdown(ctx context.Context) {

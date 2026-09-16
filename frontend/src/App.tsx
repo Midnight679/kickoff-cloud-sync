@@ -5,18 +5,24 @@ import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { AccountCard } from "./components/AccountCard";
 import { AddAccountWizard } from "./components/AddAccountWizard";
 import { ReauthDialog } from "./components/ReauthDialog";
-import { SettingsBar } from "./components/SettingsBar";
-import { EventLog } from "./components/EventLog";
+import { SettingsView } from "./components/SettingsView";
 import "./App.css";
 
-const MAX_LOG_ENTRIES = 200;
+const MAX_LOG_ENTRIES = 1000;
 
 type Modal = { kind: "add" } | { kind: "reauth"; account: AccountView } | null;
+type View = "accounts" | "settings";
 
 export default function App() {
   const [accounts, setAccounts] = useState<AccountView[]>([]);
   const [modal, setModal] = useState<Modal>(null);
   const [log, setLog] = useState<string[]>([]);
+  const [view, setView] = useState<View>("accounts");
+
+  // Persistent until the account is actually reauthenticated — not
+  // tied to any single event, so it stays correct across restarts and
+  // regardless of which view is currently open.
+  const needsAttention = accounts.some((a) => a.auth_status === "needs_reauth");
 
   const appendLog = useCallback((msg: string) => {
     const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
@@ -72,27 +78,39 @@ export default function App() {
     <div className="app">
       <header className="app__header">
         <h1>Kickoff Cloud Sync</h1>
-        <button className="btn btn--primary" onClick={() => setModal({ kind: "add" })}>
-          + Add Account
-        </button>
+        <div className="app__header-actions">
+          {view === "accounts" && (
+            <button className="btn btn--primary" onClick={() => setModal({ kind: "add" })}>
+              + Add Account
+            </button>
+          )}
+          <button
+            className={`btn btn--icon${needsAttention ? " btn--icon-error" : ""}`}
+            onClick={() => setView(view === "accounts" ? "settings" : "accounts")}
+            aria-label={needsAttention ? "Settings and logs — an account needs reauthentication" : "Settings and logs"}
+            title={needsAttention ? "An account needs reauthentication" : "Settings and logs"}
+          >
+            ⚙
+          </button>
+        </div>
       </header>
 
-      <SettingsBar onLog={appendLog} />
-
-      <div className="account-list">
-        {accounts.length === 0 && <p className="empty-state">No accounts yet — add one to get started.</p>}
-        {accounts.map((acct) => (
-          <AccountCard
-            key={acct.id}
-            account={acct}
-            onChanged={refreshAccounts}
-            onReauth={(account) => setModal({ kind: "reauth", account })}
-            onLog={appendLog}
-          />
-        ))}
-      </div>
-
-      <EventLog entries={log} />
+      {view === "settings" ? (
+        <SettingsView eventLog={log} onLog={appendLog} onBack={() => setView("accounts")} />
+      ) : (
+        <div className="account-list">
+          {accounts.length === 0 && <p className="empty-state">No accounts yet — add one to get started.</p>}
+          {accounts.map((acct) => (
+            <AccountCard
+              key={acct.id}
+              account={acct}
+              onChanged={refreshAccounts}
+              onReauth={(account) => setModal({ kind: "reauth", account })}
+              onLog={appendLog}
+            />
+          ))}
+        </div>
+      )}
 
       {modal?.kind === "add" && (
         <AddAccountWizard

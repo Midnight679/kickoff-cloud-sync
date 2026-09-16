@@ -2,6 +2,12 @@
 
 A system-tray app that watches your recent Rocket League matches across multiple accounts and automatically uploads replays to [ballchasing.gg](https://ballchasing.com).
 
+## Disclaimer
+
+This app talks to Rocket League's match-history API the same way the game client itself does, using [dank/rlapi](https://github.com/dank/rlapi). As that project states, this is a **reverse-engineered, unofficial integration** — it is not endorsed, sponsored, or approved by Epic Games or Psyonix, and isn't covered by any official API agreement. Use it at your own risk.
+
+One practical consequence: Epic/Psyonix only allow one active session per account on this connection. **Launching the real Rocket League client while this app is connected to the same account can log you out of your party/social session** (a `DuplicateLogin` conflict) — whichever side connects most recently wins, and the app's background reconnect can trigger this if it happens to fire while you're actively playing. It doesn't affect your actual match or account standing, just the social/party layer. A longer poll interval (see [Settings](#settings)) reduces how often this can happen, though it can't eliminate it entirely — see [ARCHITECTURE.md](ARCHITECTURE.md#silent-reconnection) for the full explanation.
+
 ## Features
 
 - **Multi-account** — track as many Rocket League accounts as you want, each with its own ballchasing.com token
@@ -63,6 +69,7 @@ The app polls Epic's match history API for each connected account, downloads any
 
 ## Known limitations
 
+- See [Disclaimer](#disclaimer) above regarding the reverse-engineered API and the possibility of getting logged out of your party/social session while playing.
 - Epic's match history API only exposes a recent-matches window (the same one shown in-game — the most recent 20), so very old matches won't be found. The default poll interval comfortably covers this.
 - ballchasing.com's free API tier caps uploads at 10/day — anything beyond that is queued and retried automatically once the quota resets
 - No custom tray icon yet (text-only tooltip)
@@ -70,9 +77,10 @@ The app polls Epic's match history API for each connected account, downloads any
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT — see [LICENSE](LICENSE). All dependencies use permissive licenses (MIT/Apache-2.0/BSD/ISC) with no copyleft — see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the full audit.
 
 ## Learn more
 
 - [ARCHITECTURE.md](ARCHITECTURE.md) — internal design, event system, reliability details
 - [CHANGELOG.md](CHANGELOG.md) — version history
+- [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) — dependency license audit

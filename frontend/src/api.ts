@@ -42,6 +42,8 @@ export const api = {
   setPollIntervalSecs: (secs: number) => app().SetPollIntervalSecs(secs) as Promise<void>,
   getHttpTimeoutSecs: () => app().GetHTTPTimeoutSecs() as Promise<number>,
   setHttpTimeoutSecs: (secs: number) => app().SetHTTPTimeoutSecs(secs) as Promise<void>,
+
+  getServerLogs: () => app().GetServerLogs() as Promise<string[]>,
 };
 
 /** Extracts a readable message from whatever Wails hands back for a Go `error`. */

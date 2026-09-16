@@ -30,6 +30,10 @@ export function GetPollIntervalSecs() {
   return window['go']['main']['App']['GetPollIntervalSecs']();
 }
 
+export function GetServerLogs() {
+  return window['go']['main']['App']['GetServerLogs']();
+}
+
 export function ListAccounts() {
   return window['go']['main']['App']['ListAccounts']();
 }

@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.1.5
+- **Settings and logs moved to their own screen**, opened via a gear icon in the header. Poll interval and network timeout settings live there now instead of cluttering the main account list.
+- **In-app server log capture**: a new `internal/logbuf` package captures everything written to Go's standard `log` package (network errors, retry failures, etc.) into a 1000-line ring buffer, viewable in-app as a "Server log" tab alongside the existing "Event log" — both now retain up to 1000 lines (up from 200).
+- **Problem indicator**: the settings gear turns solid red and stays that way whenever any account needs reauthentication — persistent across restarts, not tied to any single event, and clears automatically once the account is fixed. Deliberately does *not* trigger on expected/self-resolving conditions like ballchasing's daily upload quota.
+- Added a paired OS notification that fires once per account transitioning into "needs reauth" (both a live disconnect and a stale token discovered at app startup). The registry-side registration and process-level Windows API call are both in place, but full display hasn't been confirmed yet — Windows likely also requires a Start Menu shortcut with a matching AppUserModelID, which only exists for a properly installed build, not `wails dev`. To verify against our first real installer build.
+- Added a disclaimer to the README: the app uses a reverse-engineered, unofficial Epic/Psyonix API (not endorsed by either), and launching the real Rocket League client while connected can log you out of your party/social session (harmless to your account/match standing).
+- Completed a full dependency license audit (`go-licenses` + `license-checker`) — everything is permissive (MIT/Apache-2.0/BSD/ISC), no copyleft. Documented in the new `THIRD_PARTY_LICENSES.md`.
+
 ## 0.1.4
 - **Silent reconnection**: the app now detects a dropped connection (e.g. Psyonix's `DuplicateLogin`, which happens routinely when the real Rocket League client logs into the same account) and silently reconnects using the stored refresh token, instead of requiring a full browser-based reauth after every gaming session.
 - Paused accounts now get zero Epic API activity at app startup — they're connected lazily only the first time they're actually polled (manually, or after being resumed), so launching the app while a paused account's owner is mid-match can no longer trigger a login collision.
