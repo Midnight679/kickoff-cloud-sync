@@ -39,6 +39,13 @@ func NewApp() *App {
 		if name == accounts.EventNeedsReauth {
 			go sendReauthNotification(payload.Message)
 		}
+
+		// Recomputed on every event rather than special-cased to
+		// EventNeedsReauth/EventReconnected, so it also stays correct
+		// after a manual reauth from the UI and any other path that
+		// changes an account's status. SetTrayErrorState no-ops
+		// unless the overall state actually flips.
+		SetTrayErrorState(app.mgr.NeedsAttention())
 	})
 	return app
 }
@@ -70,6 +77,7 @@ func (a *App) startup(ctx context.Context) {
 	a.cancel = cancel
 
 	a.mgr.Init(pollCtx)
+	SetTrayErrorState(a.mgr.NeedsAttention())
 	a.mgr.StartScheduledPolling(pollCtx)
 }
 

@@ -5,8 +5,15 @@ config.json
 *.token
 .env
 
-# Go build output
-/build/
+# Go build output — except the checked-in source config below
+/build/*
+!/build/appicon.png
+!/build/windows/
+/build/windows/*
+!/build/windows/icon.ico
+!/build/windows/icon-error.ico
+!/build/windows/info.json
+!/build/windows/wails.exe.manifest
 *.exe
 *.test
 

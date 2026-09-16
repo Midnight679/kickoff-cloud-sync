@@ -249,6 +249,26 @@ func (m *Manager) ListAccounts() []AccountView {
 	return views
 }
 
+// NeedsAttention reports whether any account currently needs
+// reauthentication — the same condition the frontend uses to turn
+// the settings gear red, mirrored here so the tray icon can show it
+// too even while the window is hidden.
+func (m *Manager) NeedsAttention() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	for _, acct := range m.cfg.Accounts {
+		status := StatusNeedsReauth
+		if rt := m.runtimes[acct.ID]; rt != nil {
+			status = rt.status
+		}
+		if status == StatusNeedsReauth {
+			return true
+		}
+	}
+	return false
+}
+
 // SubmitAddAccountCode is step 1 of the add-account flow: it
 // exchanges a manually-copied Epic authorization code (from the URL
 // returned by auth.GetAuthURL) for a live PsyNet connection and the
