@@ -36,6 +36,8 @@ export const api = {
   setAccountBallchasingToken: (id: string, token: string) =>
     app().SetAccountBallchasingToken(id, token) as Promise<void>,
   setFriendlyName: (id: string, name: string) => app().SetFriendlyName(id, name) as Promise<void>,
+  setReplayVisibility: (id: string, visibility: string) =>
+    app().SetReplayVisibility(id, visibility) as Promise<void>,
   pollAccountNow: (id: string) => app().PollAccountNow(id) as Promise<void>,
 
   getPollIntervalSecs: () => app().GetPollIntervalSecs() as Promise<number>,

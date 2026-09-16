@@ -9,5 +9,11 @@
   "author": {
     "name": "",
     "email": ""
+  },
+  "info": {
+    "companyName": "Midnight679",
+    "productName": "Kickoff Cloud Sync",
+    "productVersion": "0.1.8",
+    "copyright": "Copyright (c) 2026 Midnight679"
   }
 }

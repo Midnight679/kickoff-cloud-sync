@@ -16,9 +16,9 @@ import (
 )
 
 type App struct {
-	ctx     context.Context
-	mgr     *accounts.Manager
-	cancel  context.CancelFunc
+	ctx    context.Context
+	mgr    *accounts.Manager
+	cancel context.CancelFunc
 }
 
 func NewApp() *App {
@@ -182,6 +182,10 @@ func (a *App) SetAccountBallchasingToken(id, token string) error {
 
 func (a *App) SetFriendlyName(id, name string) error {
 	return a.mgr.SetFriendlyName(id, name)
+}
+
+func (a *App) SetReplayVisibility(id, visibility string) error {
+	return a.mgr.SetReplayVisibility(id, visibility)
 }
 
 func (a *App) PollAccountNow(id string) error {

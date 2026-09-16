@@ -131,9 +131,11 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool) {
 		idx := m.indexOf(accountID)
 		var hasToken bool
 		var alreadyUploaded bool
+		var visibility string
 		if idx != -1 {
 			hasToken = m.cfg.Accounts[idx].HasBallchasingToken
 			_, alreadyUploaded = m.cfg.Accounts[idx].UploadedMatches[matchID]
+			visibility = m.cfg.Accounts[idx].Visibility()
 		}
 		m.mu.Unlock()
 
@@ -160,7 +162,7 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool) {
 		}
 		token := accountSecrets.BallchasingToken
 
-		result, err := uploader.UploadReplay(token, fullPath, "public")
+		result, err := uploader.UploadReplay(token, fullPath, visibility)
 		if err != nil {
 			log.Printf("retry upload failed for %s: %v", entry.Name(), err)
 			m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})

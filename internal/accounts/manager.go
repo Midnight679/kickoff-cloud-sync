@@ -42,14 +42,14 @@ const (
 // framework-agnostic on purpose so it's testable without a GUI.
 const (
 	EventAccountsChanged = "accounts-changed" // payload: nil — frontend should re-call ListAccounts
-	EventMatchDetected   = "match-detected"    // payload: EventPayload
-	EventUploadComplete  = "upload-complete"   // payload: EventPayload
-	EventUploadError     = "upload-error"      // payload: EventPayload
-	EventAuthError       = "auth-error"        // payload: EventPayload
-	EventCacheCleared    = "cache-cleared"      // payload: EventPayload — the dedupe cache hit its size cap and was reset
-	EventNoMatches       = "no-matches"        // payload: EventPayload — poll succeeded but history had zero entries
-	EventReconnected     = "reconnected"       // payload: EventPayload — dropped connection (e.g. DuplicateLogin) silently re-established
-	EventNeedsReauth     = "needs-reauth"      // payload: EventPayload — fired once per transition into needs_reauth (not on every retry), for a one-time OS notification
+	EventMatchDetected   = "match-detected"   // payload: EventPayload
+	EventUploadComplete  = "upload-complete"  // payload: EventPayload
+	EventUploadError     = "upload-error"     // payload: EventPayload
+	EventAuthError       = "auth-error"       // payload: EventPayload
+	EventCacheCleared    = "cache-cleared"    // payload: EventPayload — the dedupe cache hit its size cap and was reset
+	EventNoMatches       = "no-matches"       // payload: EventPayload — poll succeeded but history had zero entries
+	EventReconnected     = "reconnected"      // payload: EventPayload — dropped connection (e.g. DuplicateLogin) silently re-established
+	EventNeedsReauth     = "needs-reauth"     // payload: EventPayload — fired once per transition into needs_reauth (not on every retry), for a one-time OS notification
 )
 
 type EventPayload struct {
@@ -73,14 +73,15 @@ type runtimeState struct {
 // AccountView is the read-only projection sent to the frontend —
 // deliberately excludes tokens.
 type AccountView struct {
-	ID           string     `json:"id"`
-	DisplayName  string     `json:"display_name"`
-	FriendlyName string     `json:"friendly_name,omitempty"`
-	AuthStatus   AuthStatus `json:"auth_status"`
-	Paused       bool       `json:"paused"`
-	LastPollTime *time.Time `json:"last_poll_time,omitempty"`
-	NextPollTime *time.Time `json:"next_poll_time,omitempty"` // nil if paused or cycle not running
-	HasToken     bool       `json:"has_token"`                // whether a ballchasing token is set, without exposing it
+	ID               string     `json:"id"`
+	DisplayName      string     `json:"display_name"`
+	FriendlyName     string     `json:"friendly_name,omitempty"`
+	AuthStatus       AuthStatus `json:"auth_status"`
+	Paused           bool       `json:"paused"`
+	LastPollTime     *time.Time `json:"last_poll_time,omitempty"`
+	NextPollTime     *time.Time `json:"next_poll_time,omitempty"` // nil if paused or cycle not running
+	HasToken         bool       `json:"has_token"`                // whether a ballchasing token is set, without exposing it
+	ReplayVisibility string     `json:"replay_visibility"`        // "public", "unlisted", or "private"
 }
 
 // pendingAccount holds an in-progress add-account flow: logged in,
@@ -236,14 +237,15 @@ func (m *Manager) ListAccounts() []AccountView {
 		}
 
 		views = append(views, AccountView{
-			ID:           acct.ID,
-			DisplayName:  acct.DisplayName,
-			FriendlyName: acct.FriendlyName,
-			AuthStatus:   status,
-			Paused:       acct.Paused,
-			LastPollTime: acct.LastPollTime,
-			NextPollTime: nextPoll,
-			HasToken:     acct.HasBallchasingToken,
+			ID:               acct.ID,
+			DisplayName:      acct.DisplayName,
+			FriendlyName:     acct.FriendlyName,
+			AuthStatus:       status,
+			Paused:           acct.Paused,
+			LastPollTime:     acct.LastPollTime,
+			NextPollTime:     nextPoll,
+			HasToken:         acct.HasBallchasingToken,
+			ReplayVisibility: acct.Visibility(),
 		})
 	}
 	return views
@@ -563,6 +565,32 @@ func (m *Manager) SetFriendlyName(id, name string) error {
 	return nil
 }
 
+// SetReplayVisibility sets the ballchasing.com visibility used for
+// every future upload from this account. Existing already-uploaded
+// replays are unaffected — this only applies going forward.
+func (m *Manager) SetReplayVisibility(id, visibility string) error {
+	switch visibility {
+	case "public", "unlisted", "private":
+	default:
+		return errors.New("visibility must be one of: public, unlisted, private")
+	}
+
+	m.mu.Lock()
+	idx := m.indexOf(id)
+	if idx == -1 {
+		m.mu.Unlock()
+		return errors.New("account not found")
+	}
+	m.cfg.Accounts[idx].ReplayVisibility = visibility
+	m.mu.Unlock()
+
+	if err := m.persist(); err != nil {
+		return err
+	}
+	m.emit(EventAccountsChanged, EventPayload{})
+	return nil
+}
+
 // PollAccountNow polls a single account immediately, regardless of
 // its paused state — pausing only exempts an account from the
 // shared scheduled cycle, not from an explicit manual poll. Returns
@@ -825,6 +853,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 	}
 	_, alreadyUploaded := m.cfg.Accounts[idx].UploadedMatches[matchID]
 	hasToken := m.cfg.Accounts[idx].HasBallchasingToken
+	visibility := m.cfg.Accounts[idx].Visibility()
 	m.mu.Unlock()
 
 	if alreadyUploaded {
@@ -863,7 +892,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 		return true
 	}
 
-	result, err := uploader.UploadReplay(token, path, "public")
+	result, err := uploader.UploadReplay(token, path, visibility)
 	if err != nil {
 		// Download succeeded but the upload itself failed (network
 		// hiccup, ballchasing hiccup, etc.) — rather than losing the

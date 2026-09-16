@@ -5,6 +5,8 @@
 
 export type AuthStatus = "authenticated" | "needs_reauth" | "authenticating";
 
+export type ReplayVisibility = "public" | "unlisted" | "private";
+
 export interface AccountView {
   id: string;
   display_name: string;
@@ -14,6 +16,7 @@ export interface AccountView {
   last_poll_time?: string;
   next_poll_time?: string;
   has_token: boolean;
+  replay_visibility: ReplayVisibility;
 }
 
 export interface PendingAccountView {

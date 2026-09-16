@@ -78,6 +78,10 @@ export function SetPollIntervalSecs(arg1) {
   return window['go']['main']['App']['SetPollIntervalSecs'](arg1);
 }
 
+export function SetReplayVisibility(arg1, arg2) {
+  return window['go']['main']['App']['SetReplayVisibility'](arg1, arg2);
+}
+
 export function SubmitAddAccountCode(arg1) {
   return window['go']['main']['App']['SubmitAddAccountCode'](arg1);
 }

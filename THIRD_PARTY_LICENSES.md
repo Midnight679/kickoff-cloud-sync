@@ -1,8 +1,10 @@
 # Third-party licenses
 
-This project (MIT-licensed, see [LICENSE](LICENSE)) depends on the packages below. All of them use permissive licenses (MIT, Apache-2.0, BSD-2/3-Clause, ISC) — none are copyleft (GPL/LGPL/AGPL), so there are no license-compatibility issues with distributing this project, including publicly.
+This project (MIT-licensed, see [LICENSE](LICENSE)) depends on the packages below. All of them use permissive licenses (MIT, Apache-2.0, BSD-2/3-Clause, ISC) — none are copyleft (GPL/LGPL/AGPL), so there's no license-compatibility issue with distributing this project publicly.
 
-Generated with [`google/go-licenses`](https://github.com/google/go-licenses) (Go, resolved against the actual Windows build) and [`license-checker`](https://www.npmjs.com/package/license-checker) (npm). Re-run these yourself after adding or updating a dependency:
+This list covers only what's actually compiled or bundled into the shipped app. Build-only tooling — the Wails CLI, Vite, TypeScript, and the rest of `frontend`'s `devDependencies` — isn't included, since none of it ships with the app or is a dependency of it.
+
+Generated with [`google/go-licenses`](https://github.com/google/go-licenses) and [`license-checker`](https://www.npmjs.com/package/license-checker):
 
 ```bash
 go-licenses csv .
@@ -35,11 +37,9 @@ cd frontend && npx license-checker --summary
 | github.com/wailsapp/go-webview2 | MIT (combridge) / ISC (webviewloader) |
 | golang.org/x/sys | BSD-3-Clause |
 
-*(This is the dependency set actually linked into the Windows build, per `go-licenses`, not the full `go.mod` list — some indirect entries in `go.mod` are only pulled in for other platforms and never actually compiled in.)*
+*Reflects the dependency set actually linked into the Windows build, not the full `go.mod` list — some indirect entries are pulled in only for other platforms and never compiled here.*
 
-## npm (frontend, production)
-
-Only what's actually bundled into `frontend/dist` — build-time-only tooling (Vite, TypeScript, Babel, etc.) is excluded since none of it ships in the built app.
+## npm (frontend)
 
 | Package | License |
 |---|---|
@@ -47,8 +47,6 @@ Only what's actually bundled into `frontend/dist` — build-time-only tooling (V
 | [react-dom](https://github.com/facebook/react) | MIT |
 | scheduler | MIT |
 
-Build tooling (`devDependencies`) is all MIT/ISC/Apache-2.0 as well, with one exception: `caniuse-lite` (a transitive dependency of Vite's build pipeline, used only to decide browser-compatibility targets at build time) is `CC-BY-4.0`. Its data is never bundled into the shipped output, so no attribution obligation applies — but it's noted here for completeness.
+## A note on `dank/rlapi`
 
-## A note on `dank/rlapi` specifically
-
-`rlapi`'s MIT license covers the *copyright* terms for using its code — that's separate from the question of whether reverse-engineering and calling Epic/Psyonix's internal API is allowed under *their* terms of service. See the [Disclaimer](README.md#disclaimer) in the README for that distinction.
+`rlapi`'s MIT license covers the *copyright* terms for using its code — that's separate from whether reverse-engineering and calling Epic/Psyonix's internal API complies with *their* terms of service. See the [Disclaimer](README.md#disclaimer) in the README for that distinction.

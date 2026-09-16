@@ -33,6 +33,16 @@ const notifyAUMID = "Midnight679.KickoffCloudSync"
 const notifyGUID = "{6f1b1e2a-6c3d-4f7a-9d2e-2b7a5c8f1a3b}"
 
 func main() {
+	// Handled before anything else — no GUI, tray, or logbuf setup —
+	// so the uninstaller's `--purge` invocation runs to completion and
+	// exits cleanly on its own. See purge.go.
+	for _, arg := range os.Args[1:] {
+		if arg == "--purge" {
+			purgeAllData()
+			return
+		}
+	}
+
 	// Capture everything the standard log package writes (from every
 	// package, not just this one) into an in-memory ring buffer the
 	// frontend can read — see internal/logbuf. Still writes to real

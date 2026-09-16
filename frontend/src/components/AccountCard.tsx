@@ -62,6 +62,13 @@ export function AccountCard({ account, onChanged, onReauth, onLog }: Props) {
     }, "saving friendly name");
   }
 
+  async function changeVisibility(visibility: string) {
+    await run(async () => {
+      await api.setReplayVisibility(account.id, visibility);
+      onLog(`[${fmtName(account)}] replay visibility set to ${visibility}.`);
+    }, "setting replay visibility");
+  }
+
   async function pollNow() {
     // Log before awaiting, not after — PollAccountNow blocks on the Go
     // side until the whole poll finishes, so its outcome event (e.g.
@@ -131,6 +138,21 @@ export function AccountCard({ account, onChanged, onReauth, onLog }: Props) {
         <button className="btn" disabled={busy || !token} onClick={saveToken}>
           Save
         </button>
+      </div>
+
+      <div className="account-card__row">
+        <label htmlFor={`visibility-${account.id}`}>Replay visibility</label>
+        <select
+          id={`visibility-${account.id}`}
+          className="input"
+          value={account.replay_visibility}
+          onChange={(e) => changeVisibility(e.target.value)}
+          disabled={busy}
+        >
+          <option value="public">Public</option>
+          <option value="unlisted">Unlisted</option>
+          <option value="private">Private</option>
+        </select>
       </div>
 
       {error && <div className="error-text">{error}</div>}

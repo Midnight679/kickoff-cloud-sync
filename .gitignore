@@ -14,6 +14,9 @@ config.json
 !/build/windows/icon-error.ico
 !/build/windows/info.json
 !/build/windows/wails.exe.manifest
+!/build/windows/installer/
+/build/windows/installer/*
+!/build/windows/installer/project.nsi
 *.exe
 *.test
 
@@ -24,3 +27,6 @@ frontend/node_modules/
 # OS cruft
 .DS_Store
 Thumbs.db
+
+# Local AI-assistant / testing / debug tooling — never goes to GitHub
+.claude/

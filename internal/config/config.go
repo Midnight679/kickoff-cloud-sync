@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"time"
@@ -23,6 +24,12 @@ type Account struct {
 	HasBallchasingToken bool   `json:"has_ballchasing_token"`
 	Paused              bool   `json:"paused"`
 
+	// ReplayVisibility is one of "public", "unlisted", "private" —
+	// passed straight through to ballchasing's upload API. Empty
+	// means an account created before this setting existed; treat as
+	// DefaultReplayVisibility rather than migrating old configs.
+	ReplayVisibility string `json:"replay_visibility,omitempty"`
+
 	// UploadedMatches maps a Rocket League match ID to the
 	// ballchasing.com replay ID it was uploaded as. Checked before
 	// attempting any upload for this account.
@@ -32,6 +39,20 @@ type Account struct {
 	// account. Persisted so the GUI has something to show right
 	// after an app restart, before the next cycle runs.
 	LastPollTime *time.Time `json:"last_poll_time,omitempty"`
+}
+
+// DefaultReplayVisibility is used for any account with no explicit
+// ReplayVisibility set (including every account created before this
+// setting existed).
+const DefaultReplayVisibility = "public"
+
+// Visibility returns the account's configured replay visibility,
+// falling back to DefaultReplayVisibility if unset.
+func (a Account) Visibility() string {
+	if a.ReplayVisibility == "" {
+		return DefaultReplayVisibility
+	}
+	return a.ReplayVisibility
 }
 
 // Config is the whole app's persisted state. Contains no secrets —
@@ -64,12 +85,34 @@ func Default() Config {
 	}
 }
 
-func configPath() (string, error) {
+// AppDataDir returns this app's own per-user data directory — the
+// exact folder config.json and pending-uploads live in, and nothing
+// else. Exported so a caller like the --purge flow (see purge.go)
+// can locate it without duplicating path construction, with the same
+// safety checks applied every time: it can never resolve to anything
+// other than a "kickoff-cloud-sync" subfolder of the OS's own
+// per-user config directory, so a caller that RemoveAlls this path
+// can never reach outside the app's own data by construction.
+func AppDataDir() (string, error) {
 	dir, err := os.UserConfigDir()
 	if err != nil {
 		return "", err
 	}
+	if dir == "" {
+		return "", errors.New("could not determine user config directory")
+	}
 	appDir := filepath.Join(dir, "kickoff-cloud-sync")
+	if !filepath.IsAbs(appDir) || filepath.Base(appDir) != "kickoff-cloud-sync" {
+		return "", errors.New("resolved app data path failed a safety check")
+	}
+	return appDir, nil
+}
+
+func configPath() (string, error) {
+	appDir, err := AppDataDir()
+	if err != nil {
+		return "", err
+	}
 	if err := os.MkdirAll(appDir, 0o700); err != nil {
 		return "", err
 	}
@@ -81,11 +124,11 @@ func configPath() (string, error) {
 // upload — so it can be retried on a later poll instead of being
 // lost when its temp file would otherwise get cleaned up.
 func PendingUploadsDir() (string, error) {
-	dir, err := os.UserConfigDir()
+	appDir, err := AppDataDir()
 	if err != nil {
 		return "", err
 	}
-	pendingDir := filepath.Join(dir, "kickoff-cloud-sync", "pending-uploads")
+	pendingDir := filepath.Join(appDir, "pending-uploads")
 	if err := os.MkdirAll(pendingDir, 0o700); err != nil {
 		return "", err
 	}

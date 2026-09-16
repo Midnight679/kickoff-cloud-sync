@@ -40,6 +40,8 @@ export function SetLaunchAtLogin(arg1:boolean):Promise<void>;
 
 export function SetPollIntervalSecs(arg1:number):Promise<void>;
 
+export function SetReplayVisibility(arg1:string,arg2:string):Promise<void>;
+
 export function SubmitAddAccountCode(arg1:string):Promise<accounts.PendingAccountView>;
 
 export function SubmitReauthCode(arg1:string,arg2:string):Promise<void>;

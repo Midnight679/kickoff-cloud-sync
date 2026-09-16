@@ -11,6 +11,7 @@ export namespace accounts {
 	    // Go type: time
 	    next_poll_time?: any;
 	    has_token: boolean;
+	    replay_visibility: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new AccountView(source);
@@ -26,6 +27,7 @@ export namespace accounts {
 	        this.last_poll_time = this.convertValues(source["last_poll_time"], null);
 	        this.next_poll_time = this.convertValues(source["next_poll_time"], null);
 	        this.has_token = source["has_token"];
+	        this.replay_visibility = source["replay_visibility"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

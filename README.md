@@ -63,7 +63,7 @@ Reauthenticating an existing account (if its login expires) follows the same ope
 
 ### Replay visibility
 
-Uploads default to `public` on ballchasing.com. A UI toggle for unlisted/private is planned; for now, change the visibility argument in `internal/accounts/manager.go` if you want something else.
+Each account has its own **Replay visibility** dropdown (public/unlisted/private) in its account card, applied to every future upload from that account. Defaults to `public`. Changing it doesn't affect replays already uploaded.
 
 ## How it works
 
@@ -74,7 +74,6 @@ The app polls Epic's match history API for each connected account, downloads any
 - See [Disclaimer](#disclaimer) above regarding the reverse-engineered API and the possibility of getting logged out of your party/social session while playing.
 - Epic's match history API only exposes a recent-matches window (the same one shown in-game — the most recent 20), so very old matches won't be found. The default poll interval comfortably covers this.
 - ballchasing.com's free API tier caps uploads at 10/day — anything beyond that is queued and retried automatically once the quota resets
-- Replay visibility isn't yet configurable from the UI
 
 ## License
 
