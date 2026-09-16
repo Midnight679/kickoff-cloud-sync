@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.1.7
+- **Security review**: ran `govulncheck` (Go) and `npm audit` against every dependency — zero known vulnerabilities in either. Manually reviewed the full codebase for common exploit classes and fixed three findings, all low-severity given this is a local single-user desktop app with no exposed network surface, but hardened anyway:
+  - Match/account IDs are now validated (alphanumeric-only) before being used to construct any file path, closing a theoretical path-traversal gap in the pending-uploads cache.
+  - Replay URLs are now validated (must be `https://`, can't point at `localhost`/an empty host) before being fetched, as defense in depth against ever blindly downloading from an unexpected address.
+  - The poll interval can no longer be set below 10 minutes — previously unbounded, so `0` or a negative value could busy-loop and hammer Epic's and ballchasing's APIs. Enforced everywhere: the setter, the default config, and clamped on load for any existing config with a lower stored value.
+- Added a note to the README disclosing that this project is AI-assisted / "vibe coded," in the interest of transparency.
+
 ## 0.1.6
 - **Closing the window no longer quits the app** — clicking the close button now hides it to the tray instead, matching what a background uploader should actually do. Use the tray icon's Quit option to actually exit.
 - **Launch at Windows startup**: a new checkbox in Settings, backed by the standard per-user registry Run key (no installer or admin rights needed). The registry is the live source of truth rather than a cached setting, so it can't drift out of sync if removed via Task Manager's Startup tab. An auto-launched instance starts hidden in the tray instead of popping up a window.

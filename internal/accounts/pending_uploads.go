@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"log"
 	"os"
@@ -19,6 +20,25 @@ import (
 // double underscore is chosen to be unlikely to collide with either.
 const pendingFileSeparator = "__"
 
+// isSafePathComponent reports whether s is safe to embed directly in
+// a filename: alphanumeric only, so it can never contain a path
+// separator or a ".." traversal segment. accountID is always our own
+// newID() output, but matchID comes from Epic's match history API —
+// a trusted first-party source, but not one worth trusting blindly to
+// never hand back something unexpected. Every real ID observed from
+// either source is plain hex, so this costs no real functionality.
+func isSafePathComponent(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		if !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			return false
+		}
+	}
+	return true
+}
+
 // cachePendingReplay is called when a replay downloaded successfully
 // but the ballchasing upload failed — rather than losing the
 // download (or leaving an untracked file sitting in the OS temp
@@ -27,6 +47,10 @@ const pendingFileSeparator = "__"
 // copy+remove if the temp dir and the pending dir are on different
 // filesystems (os.Rename fails across devices).
 func cachePendingReplay(srcPath, accountID, matchID string) error {
+	if !isSafePathComponent(accountID) || !isSafePathComponent(matchID) {
+		return fmt.Errorf("refusing to cache replay: unexpected characters in account or match ID")
+	}
+
 	dir, err := config.PendingUploadsDir()
 	if err != nil {
 		return err
@@ -65,6 +89,9 @@ func cachePendingReplay(srcPath, accountID, matchID string) error {
 // redundantly re-downloaded and re-attempted on every poll on top of
 // retryPendingUploads already handling it once per cycle.
 func hasPendingReplay(accountID, matchID string) bool {
+	if !isSafePathComponent(accountID) || !isSafePathComponent(matchID) {
+		return false
+	}
 	dir, err := config.PendingUploadsDir()
 	if err != nil {
 		return false
@@ -160,7 +187,7 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool) {
 func parsePendingFilename(name string) (accountID, matchID string, ok bool) {
 	base := strings.TrimSuffix(name, ".replay")
 	parts := strings.SplitN(base, pendingFileSeparator, 2)
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+	if len(parts) != 2 || !isSafePathComponent(parts[0]) || !isSafePathComponent(parts[1]) {
 		return "", "", false
 	}
 	return parts[0], parts[1], true

@@ -8,6 +8,8 @@ This app talks to Rocket League's match-history API the same way the game client
 
 One practical consequence: Epic/Psyonix only allow one active session per account on this connection. **Launching the real Rocket League client while this app is connected to the same account can log you out of your party/social session** (a `DuplicateLogin` conflict) — whichever side connects most recently wins, and the app's background reconnect can trigger this if it happens to fire while you're actively playing. It doesn't affect your actual match or account standing, just the social/party layer. A longer poll interval (see [Settings](#settings)) reduces how often this can happen, though it can't eliminate it entirely — see [ARCHITECTURE.md](ARCHITECTURE.md#silent-reconnection) for the full explanation.
 
+This project is also AI-assisted / "vibe coded" — built in collaboration with Claude, with a human reviewing, testing, and directing every change rather than writing all of it by hand. Disclosed here in the interest of transparency, not as a caveat on quality.
+
 ## Features
 
 - **Multi-account** — track as many Rocket League accounts as you want, each with its own ballchasing.com token

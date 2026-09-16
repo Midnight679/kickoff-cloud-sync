@@ -62,7 +62,7 @@ export function SettingsBar({ onLog }: Props) {
         <input
           className="input input--narrow"
           type="number"
-          min={1}
+          min={10}
           value={pollIntervalMins}
           onChange={(e) => setPollIntervalMins(e.target.value === "" ? "" : Number(e.target.value))}
         />

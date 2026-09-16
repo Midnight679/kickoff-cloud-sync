@@ -49,9 +49,16 @@ type Config struct {
 	HTTPTimeoutSecs int `json:"http_timeout_secs"`
 }
 
+// MinPollIntervalSecs is the lowest poll interval allowed — below
+// this, the app would hammer Epic's and ballchasing's APIs rapidly
+// enough to risk both reliability and account-standing problems, for
+// no real benefit (ballchasing's free tier caps uploads at 10/day
+// regardless of how often you check).
+const MinPollIntervalSecs = 600 // 10 minutes
+
 func Default() Config {
 	return Config{
-		PollIntervalSecs: 300,
+		PollIntervalSecs: MinPollIntervalSecs,
 		Accounts:         []Account{},
 		HTTPTimeoutSecs:  30,
 	}
@@ -106,6 +113,9 @@ func Load() (Config, error) {
 	}
 	if cfg.HTTPTimeoutSecs <= 0 {
 		cfg.HTTPTimeoutSecs = Default().HTTPTimeoutSecs
+	}
+	if cfg.PollIntervalSecs < MinPollIntervalSecs {
+		cfg.PollIntervalSecs = MinPollIntervalSecs
 	}
 	for i := range cfg.Accounts {
 		if cfg.Accounts[i].UploadedMatches == nil {

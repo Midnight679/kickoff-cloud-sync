@@ -496,6 +496,9 @@ func (m *Manager) GetPollIntervalSecs() int {
 }
 
 func (m *Manager) SetPollIntervalSecs(secs int) error {
+	if secs < config.MinPollIntervalSecs {
+		return fmt.Errorf("poll interval must be at least %d minutes", config.MinPollIntervalSecs/60)
+	}
 	m.mu.Lock()
 	m.cfg.PollIntervalSecs = secs
 	m.mu.Unlock()
