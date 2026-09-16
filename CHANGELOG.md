@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.1.6
+- **Closing the window no longer quits the app** — clicking the close button now hides it to the tray instead, matching what a background uploader should actually do. Use the tray icon's Quit option to actually exit.
+- **Launch at Windows startup**: a new checkbox in Settings, backed by the standard per-user registry Run key (no installer or admin rights needed). The registry is the live source of truth rather than a cached setting, so it can't drift out of sync if removed via Task Manager's Startup tab. An auto-launched instance starts hidden in the tray instead of popping up a window.
+- **Replay auto-naming**: uploaded replays are no longer left with their default filename-based title. After upload, ballchasing's own authoritative parse of the replay (mode, teams, score) is used to set a real title — `"Ranked Doubles — Win"` for a normal match, or for a private match, the lobby's own custom team names if the host set any (e.g. `"Private — POLAR BEARS vs WHISKER GOBLINS"`), falling back to player rosters (`"Private — Alice, Bob vs Carol, Dave"`) if not, since win/loss is less meaningful there. Verified against real already-uploaded replays (including one with real custom team names) before rolling out.
+
 ## 0.1.5
 - **Settings and logs moved to their own screen**, opened via a gear icon in the header. Poll interval and network timeout settings live there now instead of cluttering the main account list.
 - **In-app server log capture**: a new `internal/logbuf` package captures everything written to Go's standard `log` package (network errors, retry failures, etc.) into a 1000-line ring buffer, viewable in-app as a "Server log" tab alongside the existing "Event log" — both now retain up to 1000 lines (up from 200).

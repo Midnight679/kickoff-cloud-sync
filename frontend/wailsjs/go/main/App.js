@@ -26,6 +26,10 @@ export function GetHTTPTimeoutSecs() {
   return window['go']['main']['App']['GetHTTPTimeoutSecs']();
 }
 
+export function GetLaunchAtLogin() {
+  return window['go']['main']['App']['GetLaunchAtLogin']();
+}
+
 export function GetPollIntervalSecs() {
   return window['go']['main']['App']['GetPollIntervalSecs']();
 }
@@ -64,6 +68,10 @@ export function SetFriendlyName(arg1, arg2) {
 
 export function SetHTTPTimeoutSecs(arg1) {
   return window['go']['main']['App']['SetHTTPTimeoutSecs'](arg1);
+}
+
+export function SetLaunchAtLogin(arg1) {
+  return window['go']['main']['App']['SetLaunchAtLogin'](arg1);
 }
 
 export function SetPollIntervalSecs(arg1) {

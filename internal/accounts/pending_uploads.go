@@ -142,7 +142,9 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool) {
 
 		m.mu.Lock()
 		idx = m.indexOf(accountID)
+		var displayName string
 		if idx != -1 {
+			displayName = m.cfg.Accounts[idx].DisplayName
 			m.cfg.Accounts[idx].UploadedMatches[matchID] = result.ID
 			m.resetCacheIfOversized(idx, matchID, result.ID)
 		}
@@ -151,6 +153,7 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool) {
 
 		_ = os.Remove(fullPath)
 		m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
+		go finalizeReplayTitle(token, result.ID, displayName)
 	}
 }
 

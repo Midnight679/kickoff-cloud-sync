@@ -117,6 +117,14 @@
   color: var(--text-dim);
 }
 
+.settings-bar__checkbox {
+  cursor: pointer;
+}
+
+.settings-bar__checkbox input {
+  cursor: pointer;
+}
+
 /* --- account list --- */
 
 .account-list {

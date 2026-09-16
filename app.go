@@ -10,6 +10,7 @@ import (
 
 	"github.com/Midnight679/kickoff-cloud-sync/internal/accounts"
 	"github.com/Midnight679/kickoff-cloud-sync/internal/auth"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/autostart"
 	"github.com/Midnight679/kickoff-cloud-sync/internal/config"
 	"github.com/Midnight679/kickoff-cloud-sync/internal/logbuf"
 )
@@ -193,4 +194,19 @@ func (a *App) GetHTTPTimeoutSecs() int {
 
 func (a *App) SetHTTPTimeoutSecs(secs int) error {
 	return a.mgr.SetHTTPTimeoutSecs(secs)
+}
+
+// GetLaunchAtLogin reports whether the app is currently registered to
+// start automatically when Windows logs in — read live from the
+// registry (see internal/autostart), not a cached setting, so it
+// can't drift out of sync with reality.
+func (a *App) GetLaunchAtLogin() (bool, error) {
+	return autostart.IsEnabled()
+}
+
+// SetLaunchAtLogin enables or disables starting automatically at
+// Windows login. When enabled, the auto-launched instance starts
+// hidden in the tray rather than popping up a window.
+func (a *App) SetLaunchAtLogin(enabled bool) error {
+	return autostart.SetEnabled(enabled)
 }

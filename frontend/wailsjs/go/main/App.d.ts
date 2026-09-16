@@ -14,6 +14,8 @@ export function ConfirmAddAccount(arg1:string,arg2:string,arg3:string):Promise<a
 
 export function GetHTTPTimeoutSecs():Promise<number>;
 
+export function GetLaunchAtLogin():Promise<boolean>;
+
 export function GetPollIntervalSecs():Promise<number>;
 
 export function GetServerLogs():Promise<Array<string>>;
@@ -33,6 +35,8 @@ export function SetAccountBallchasingToken(arg1:string,arg2:string):Promise<void
 export function SetFriendlyName(arg1:string,arg2:string):Promise<void>;
 
 export function SetHTTPTimeoutSecs(arg1:number):Promise<void>;
+
+export function SetLaunchAtLogin(arg1:boolean):Promise<void>;
 
 export function SetPollIntervalSecs(arg1:number):Promise<void>;
 

@@ -858,7 +858,9 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 
 	m.mu.Lock()
 	idx = m.indexOf(accountID)
+	var displayName string
 	if idx != -1 {
+		displayName = m.cfg.Accounts[idx].DisplayName
 		m.cfg.Accounts[idx].UploadedMatches[matchID] = result.ID
 		if cleared := m.resetCacheIfOversized(idx, matchID, result.ID); cleared {
 			m.mu.Unlock()
@@ -874,7 +876,28 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 
 	_ = m.persist()
 	m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
+	go finalizeReplayTitle(token, result.ID, displayName)
 	return true
+}
+
+// finalizeReplayTitle best-effort renames a freshly uploaded replay
+// using ballchasing's own authoritative parse of it (mode, teams,
+// win/loss) instead of leaving it as the bare uploaded filename.
+// Never treated as a failure if it doesn't work out — the upload
+// itself already succeeded either way, and this only fails to
+// decorate it. Run in its own goroutine since GetReplayWithRetry can
+// take several seconds waiting on ballchasing's processing, and
+// there's no need to hold up the poll cycle for it.
+func finalizeReplayTitle(token, replayID, accountDisplayName string) {
+	details, err := uploader.GetReplayWithRetry(token, replayID)
+	if err != nil {
+		log.Printf("could not fetch replay details to set title for %s: %v", replayID, err)
+		return
+	}
+	title := uploader.BuildTitle(details, accountDisplayName)
+	if err := uploader.SetReplayTitle(token, replayID, title); err != nil {
+		log.Printf("could not set replay title for %s: %v", replayID, err)
+	}
 }
 
 // indexOf must be called with m.mu already held.

@@ -44,6 +44,9 @@ export const api = {
   setHttpTimeoutSecs: (secs: number) => app().SetHTTPTimeoutSecs(secs) as Promise<void>,
 
   getServerLogs: () => app().GetServerLogs() as Promise<string[]>,
+
+  getLaunchAtLogin: () => app().GetLaunchAtLogin() as Promise<boolean>,
+  setLaunchAtLogin: (enabled: boolean) => app().SetLaunchAtLogin(enabled) as Promise<void>,
 };
 
 /** Extracts a readable message from whatever Wails hands back for a Go `error`. */

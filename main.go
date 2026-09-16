@@ -59,10 +59,26 @@ func main() {
 		},
 	)
 
+	// Passed by the registry Run-key entry (see internal/autostart)
+	// when the app launches automatically at login, so it starts
+	// quietly in the tray instead of popping up a window every time
+	// Windows starts.
+	startHidden := false
+	for _, arg := range os.Args[1:] {
+		if arg == "--hidden" {
+			startHidden = true
+		}
+	}
+
 	err := wails.Run(&options.App{
-		Title:  "Kickoff Cloud Sync",
-		Width:  480,
-		Height: 640,
+		Title:       "Kickoff Cloud Sync",
+		Width:       480,
+		Height:      640,
+		StartHidden: startHidden,
+		// Clicking the window's close button hides it instead of
+		// quitting the whole app — this is a background uploader, so
+		// the tray icon (Quit menu item) is the actual way to exit.
+		HideWindowOnClose: true,
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},

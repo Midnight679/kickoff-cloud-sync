@@ -11,12 +11,28 @@ export function SettingsBar({ onLog }: Props) {
   // converting at the boundary.
   const [pollIntervalMins, setPollIntervalMins] = useState<number | "">("");
   const [httpTimeout, setHttpTimeout] = useState<number | "">("");
+  const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
     api.getPollIntervalSecs().then((secs) => setPollIntervalMins(Math.round(secs / 60)));
     api.getHttpTimeoutSecs().then(setHttpTimeout);
+    api.getLaunchAtLogin().then(setLaunchAtLogin);
   }, []);
+
+  async function toggleLaunchAtLogin(checked: boolean) {
+    // Optimistic — flip immediately, then confirm against the
+    // registry (the actual source of truth) so the UI can't show a
+    // state that isn't real if the write fails.
+    setLaunchAtLogin(checked);
+    try {
+      await api.setLaunchAtLogin(checked);
+      onLog(checked ? "Will launch automatically at Windows login." : "Removed from Windows startup.");
+    } catch (e) {
+      setError(errorMessage(e));
+      api.getLaunchAtLogin().then(setLaunchAtLogin);
+    }
+  }
 
   async function savePollInterval() {
     if (pollIntervalMins === "") return;
@@ -67,6 +83,14 @@ export function SettingsBar({ onLog }: Props) {
           Save
         </button>
       </div>
+      <label className="settings-bar__field settings-bar__checkbox">
+        <input
+          type="checkbox"
+          checked={launchAtLogin}
+          onChange={(e) => toggleLaunchAtLogin(e.target.checked)}
+        />
+        Launch at Windows startup
+      </label>
       {error && <div className="error-text">{error}</div>}
     </div>
   );
