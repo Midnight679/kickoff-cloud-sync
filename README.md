@@ -1,19 +1,20 @@
 # RL Replay Uploader (Kickoff Cloud Sync)
 
-**Version 0.1.1**
+**Version 0.1.2**
 
 A system-tray app that watches recent Rocket League matches across
 multiple accounts and auto-uploads replays to
 [ballchasing.gg](https://ballchasing.com).
 
-**Status: backend verified, frontend not yet built.** Every third-party
-dependency call (`dank/rlapi`, ballchasing.com's API, `go-keyring`,
-`systray`) has been checked against real, downloaded source rather than
-guessed from docs — see [Version history](#version-history) below. The
-Go backend (`go build ./...`, `go vet ./...`) compiles and vets clean.
-What's still missing: an actual Wails frontend (`frontend/index.html`
-is a functional reference for wiring, not a designed UI) and a real
-tray icon asset.
+**Status: backend verified, working React frontend.** Every
+third-party dependency call (`dank/rlapi`, ballchasing.com's API,
+`go-keyring`, `systray`) has been checked against real, downloaded
+source rather than guessed from docs — see
+[Version history](#version-history) below. The full app (Go backend +
+React/Vite frontend) builds clean and has been run end-to-end with
+`wails dev`, including a real (failing, as expected without a valid
+code) call to Epic's live OAuth API. What's still missing: a real tray
+icon asset (currently text-only tooltip) and visual polish.
 
 ## How it works
 
@@ -114,10 +115,13 @@ returns both fields separately.
 Events (`runtime.EventsEmit`, payload is `accounts.EventPayload` with
 an `account_id` field so the frontend can route to the right box):
 `accounts-changed`, `match-detected`, `upload-complete`,
-`upload-error`, `auth-error`. The bare-bones `frontend/index.html` in
-this scaffold demonstrates wiring all of this up — treat it as a
-reference for the bound method names and event payloads, not as the
-UI itself.
+`upload-error`, `auth-error`, `cache-cleared`. The React app in
+`frontend/src` wires all of this up — `App.tsx` holds the account
+list/modal state, `api.ts` is a hand-typed wrapper around
+`window.go.main.App.*` (kept in sync with `app.go` by hand rather than
+via wails codegen), and `components/` has one file per piece of UI
+(account card, add-account wizard, reauth dialog, settings bar, event
+log).
 
 ## Duplicate handling
 
@@ -221,22 +225,26 @@ go mod tidy
 ```
 
 `go.mod` is pinned to real, resolvable versions (`dank/rlapi` v0.1.23,
-Wails v2.9.2, `systray` v1.2.2) — this needs internet access to fetch
+Wails v2.16.0, `systray` v1.2.2) — this needs internet access to fetch
 them from the module proxy, but no `git` binary is required for that
 (everything resolves through `proxy.golang.org`).
 
-### 2. Wails frontend tooling
+### 2. Running it
 
-This scaffold ships a bare-bones `frontend/index.html` so the project
-compiles and the account-management flow is demonstrable. For the
-full Wails dev experience (hot reload, build pipeline), install the
-Wails CLI and consider running `wails init` in a separate folder to
-compare scaffolds:
+The frontend is a real React + TypeScript + Vite app under
+`frontend/`. Install the Wails CLI once, then:
 
 ```
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
 wails dev
 ```
+
+`wails dev` installs frontend npm dependencies automatically, starts
+the Vite dev server, and opens the app window. It also serves a
+browser-accessible mirror at `http://localhost:34115` — useful for
+inspecting the UI without the native window, though `window.go` calls
+only work there too because Wails' dev server bridges them the same
+way.
 
 ### 3. Auth
 
@@ -270,10 +278,8 @@ Recommended order, matching what we discussed:
 ## Known gaps to fill in before this runs
 
 - [ ] Real tray icon asset (currently text-only tooltip)
-- [ ] Window show/hide wiring in `main.go`'s tray callback
-- [ ] Frontend is a functional reference, not a designed UI — that's
-      the part you're taking on (no `package.json`/build tooling yet
-      either — `frontend/src` is empty)
+- [ ] Visual polish — current UI is functional (React + Vite, dark
+      theme) but not designed
 - [ ] `LICENSE` copyright line and `go.mod` module path still have
       placeholder values (`[your name here]` /
       `github.com/yourusername/...`) — left for you to fill in
@@ -281,7 +287,43 @@ Recommended order, matching what we discussed:
 
 ## Version history
 
-### 0.1.1 (current, unpushed)
+### 0.1.2 (current, unpushed)
+- Built the real frontend: React + TypeScript + Vite, scaffolded via
+  `wails init -t react-ts` (harvested for build tooling only — our own
+  `main.go`/`app.go`/`tray.go` were kept as-is, not overwritten).
+  `frontend/src` now has `App.tsx`, a hand-typed `api.ts` wrapper
+  around the bound Go methods, and one component per piece of UI
+  (account card, three-step add-account wizard, two-step reauth
+  dialog, settings bar, event log).
+- Found and fixed two real bugs while wiring this up:
+  `main.go` had `AssetServer: nil` — a placeholder from before the
+  frontend existed — which crashed the app at startup
+  (`AssetServer options invalid`); and the tray's "Show Window"
+  callback was a no-op TODO, now calls `runtime.WindowShow`.
+  Both were caught by actually running `wails dev`, not just
+  `go build`.
+- Verified end-to-end with `wails dev`: confirmed `GetPollIntervalSecs`
+  / `GetHTTPTimeoutSecs` load real values from `config.json` on
+  startup, `SetPollIntervalSecs` round-trips to disk, and the
+  add-account flow's `SubmitAddAccountCode` correctly reaches Epic's
+  live OAuth API — a deliberately-invalid code came back with Epic's
+  real `authorization_code_not_found` error, proving the whole chain
+  (React → Wails bridge → Go → `rlapi` → Epic's servers → error
+  propagated back to the UI) works.
+- `wails dev` bumped `wails` from v2.9.2 to v2.16.0 (matching the
+  installed CLI) and Go to 1.25.0 in `go.mod`; removed a stale
+  `go.mod` comment left over from before `rlapi` was pinned to a real
+  version.
+- Fixed a real gap found during manual QA: backing out of the reauth
+  dialog after opening the login link (but before submitting a code)
+  left the account stuck showing "authenticating" indefinitely, since
+  nothing reverted the status `BeginReauth` had set. Added
+  `Manager.CancelReauth` / `App.CancelReauth`, wired to the reauth
+  dialog's Cancel button. Verified by temporarily seeding a fake
+  `needs_reauth` account in `config.json` and confirming the status
+  reverts correctly on cancel.
+
+### 0.1.1
 - Rewrote `internal/auth/epic.go`, `internal/matches/poller.go`, and
   the relevant parts of `internal/accounts/manager.go` against
   `dank/rlapi` v0.1.23's actual downloaded source. The types assumed

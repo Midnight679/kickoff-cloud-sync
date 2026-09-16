@@ -1,0 +1,235 @@
+.app {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  padding: 1rem 1.25rem;
+  gap: 0.75rem;
+  overflow: hidden;
+}
+
+.app__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app__header h1 {
+  font-size: 1.1rem;
+  margin: 0;
+}
+
+/* --- shared controls --- */
+
+.input {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.4rem 0.6rem;
+  font-size: 0.85rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.input--narrow {
+  flex: none;
+  width: 5rem;
+}
+
+.btn {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  padding: 0.4rem 0.75rem;
+  font-size: 0.85rem;
+  cursor: pointer;
+}
+
+.btn:hover:not(:disabled) {
+  border-color: var(--accent);
+}
+
+.btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+.btn--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: white;
+}
+
+.btn--danger {
+  color: var(--danger);
+}
+
+.btn--warn {
+  color: var(--warn);
+  border-color: var(--warn);
+  align-self: flex-start;
+}
+
+.error-text {
+  color: var(--danger);
+  font-size: 0.8rem;
+}
+
+/* --- settings bar --- */
+
+.settings-bar {
+  display: flex;
+  gap: 1.5rem;
+  flex-wrap: wrap;
+  padding: 0.5rem 0.75rem;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+
+.settings-bar__field {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+/* --- account list --- */
+
+.account-list {
+  flex: 1;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 0.75rem;
+  align-content: start;
+}
+
+.empty-state {
+  color: var(--text-dim);
+  font-size: 0.9rem;
+}
+
+.account-card {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.75rem;
+}
+
+.account-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.account-card__header h3 {
+  margin: 0;
+  font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.account-card__row {
+  display: flex;
+  gap: 0.4rem;
+  align-items: center;
+}
+
+.account-card__meta {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+  justify-content: space-between;
+}
+
+.account-card__actions {
+  margin-top: auto;
+}
+
+.status-pill {
+  font-size: 0.7rem;
+  padding: 0.15rem 0.5rem;
+  border-radius: 999px;
+  white-space: nowrap;
+}
+
+.status-pill--authenticated {
+  background: rgba(76, 175, 80, 0.15);
+  color: var(--ok);
+}
+
+.status-pill--needs_reauth {
+  background: rgba(229, 72, 77, 0.15);
+  color: var(--danger);
+}
+
+.status-pill--authenticating {
+  background: rgba(229, 165, 63, 0.15);
+  color: var(--warn);
+}
+
+/* --- modal --- */
+
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.6);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 10;
+}
+
+.modal {
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 1.25rem;
+  width: 340px;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.modal h3,
+.modal h4 {
+  margin: 0 0 0.25rem 0;
+}
+
+.modal p {
+  font-size: 0.8rem;
+  color: var(--text-dim);
+  margin: 0;
+}
+
+.modal__row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.modal__row label {
+  font-size: 0.75rem;
+  color: var(--text-dim);
+}
+
+/* --- event log --- */
+
+.event-log {
+  height: 110px;
+  overflow-y: auto;
+  font-size: 0.7rem;
+  color: var(--text-dim);
+  background: var(--bg-raised);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 0.5rem 0.75rem;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}

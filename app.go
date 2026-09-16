@@ -115,6 +115,12 @@ func (a *App) SubmitReauthCode(id, authCode string) error {
 	return a.mgr.SubmitReauthCode(a.ctx, id, authCode)
 }
 
+// CancelReauth reverts the "authenticating" status set by BeginReauth
+// if the user backs out of the reauth dialog before submitting a code.
+func (a *App) CancelReauth(id string) {
+	a.mgr.CancelReauth(id)
+}
+
 func (a *App) PauseAccount(id string) error {
 	return a.mgr.PauseAccount(id, true)
 }

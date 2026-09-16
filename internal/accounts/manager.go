@@ -326,6 +326,21 @@ func (m *Manager) BeginReauth(id string) error {
 	return nil
 }
 
+// CancelReauth reverts the "authenticating" status set by BeginReauth
+// back to "needs_reauth" — call this if the user backs out of the
+// reauth dialog before submitting a code. Without this, an abandoned
+// reauth would leave the account stuck showing "authenticating"
+// (which hides the Reauthenticate button) until the app restarts.
+// A no-op if the account isn't currently mid-reauth.
+func (m *Manager) CancelReauth(id string) {
+	m.mu.Lock()
+	if rt, ok := m.runtimes[id]; ok && rt.status == StatusAuthenticating {
+		rt.status = StatusNeedsReauth
+	}
+	m.mu.Unlock()
+	m.emit(EventAccountsChanged, EventPayload{})
+}
+
 // SubmitReauthCode completes the reauth flow started by BeginReauth,
 // exchanging a manually-copied Epic authorization code for a fresh
 // PsyNet connection and updating the account's stored refresh token
