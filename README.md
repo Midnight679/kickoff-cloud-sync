@@ -1,13 +1,19 @@
-# RL Replay Uploader
+# RL Replay Uploader (Kickoff Cloud Sync)
+
+**Version 0.1.1**
 
 A system-tray app that watches recent Rocket League matches across
 multiple accounts and auto-uploads replays to
 [ballchasing.gg](https://ballchasing.com).
 
-**Status: scaffold / work in progress.** This is a starting structure,
-not a finished, tested app — several pieces are marked `TODO` and need
-verifying against current library APIs before this will actually build
-and run.
+**Status: backend verified, frontend not yet built.** Every third-party
+dependency call (`dank/rlapi`, ballchasing.com's API, `go-keyring`,
+`systray`) has been checked against real, downloaded source rather than
+guessed from docs — see [Version history](#version-history) below. The
+Go backend (`go build ./...`, `go vet ./...`) compiles and vets clean.
+What's still missing: an actual Wails frontend (`frontend/index.html`
+is a functional reference for wiring, not a designed UI) and a real
+tray icon asset.
 
 ## How it works
 
@@ -29,20 +35,16 @@ and run.
 
 **No local Rocket League install required.** Match history and replay
 downloads both come from Epic/Psyonix's cloud via the API — confirmed
-via `rlapi-py` (same underlying API), whose docs describe "match
-history with replay URLs." There is intentionally no fallback to a
-local `Demos` folder, so this can run on any machine with network
-access, including one that's never had Rocket League installed.
+against `dank/rlapi` v0.1.23's actual source (`rpc.GetMatchHistory`
+returns `[]MatchEntry`, each with a `Match.MatchGUID` and a
+`ReplayUrl`). There is intentionally no fallback to a local `Demos`
+folder, so this can run on any machine with network access, including
+one that's never had Rocket League installed.
 
-Two caveats worth keeping in mind:
-- The exact field names on rlapi's `MatchEntry` (replay URL) and
-  `GetProfile` response (display name) aren't confirmed yet — check
-  the current godoc once you have network access. Both are marked
-  `TODO` in `internal/matches/poller.go` and `internal/auth/epic.go`.
-- The cloud copy is almost certainly retention-limited to recent
-  matches (same window as the in-game "Recent Matches" list — the
-  most recent 20). At the default 5-minute poll interval this has a
-  huge safety margin.
+One caveat worth keeping in mind: the cloud copy is almost certainly
+retention-limited to recent matches (same window as the in-game
+"Recent Matches" list — the most recent 20). At the default 5-minute
+poll interval this has a huge safety margin.
 
 ## Multi-account design
 
@@ -73,23 +75,37 @@ when the user clicks Reauth.
 One box per account, populated from `App.ListAccounts()`
 (`[]accounts.AccountView`): display name, friendly name, auth
 status, last/next poll time, paused flag, and whether a token is set
-(without exposing the token itself). Actions: `ReauthAccount`,
+(without exposing the token itself). Actions:
 `PauseAccount`/`ResumeAccount`, `RemoveAccount`,
 `SetAccountBallchasingToken`, `SetFriendlyName`, `PollAccountNow`.
 Global: `GetPollIntervalSecs`/`SetPollIntervalSecs`.
 
-**Adding an account is a two-step flow, not one call:**
-1. `BeginAddAccount()` — opens the Epic browser login. Blocks until
-   the user finishes (or abandons) it, then returns
+**There is no automated browser callback for Epic login** — after the
+user signs in, Epic redirects to a page whose body is a small JSON
+blob containing an `authorizationCode` field, which the user has to
+copy out and paste back into the app. This shapes both the
+add-account and reauth flows below.
+
+**Adding an account is a three-step flow:**
+1. `BeginAddAccount()` — opens the Epic login URL in the system
+   browser and returns that same URL (so the frontend can also show
+   it as a fallback link/button).
+2. `SubmitAddAccountCode(authCode)` — exchanges the user's pasted
+   code for a live connection and the Epic display name, returning
    `{pending_id, epic_display_name}`. Nothing is persisted yet.
-2. `ConfirmAddAccount(pendingID, ballchasingToken, friendlyName)` —
+3. `ConfirmAddAccount(pendingID, ballchasingToken, friendlyName)` —
    validates the token against ballchasing's own API (a real ping,
    not just a non-empty check) before saving anything. On failure,
-   the pending login from step 1 is preserved server-side, so the
+   the pending login from step 2 is preserved server-side, so the
    frontend can just let the user retry with a different token
    rather than going through the browser login again.
-3. `CancelAddAccount(pendingID)` — discards an in-progress flow if
-   the user backs out of the token step.
+4. `CancelAddAccount(pendingID)` — discards an in-progress flow at
+   any point (e.g. the user backs out of the token step).
+
+**Reauthenticating an existing account is a two-step flow**, same
+shape as steps 1-2 above: `BeginReauth(id)` opens the login URL, then
+`SubmitReauthCode(id, authCode)` completes it and updates the account
+in place.
 
 Friendly names show in parentheses next to the Epic display name —
 `DisplayName (FriendlyName)` — computed client-side; the backend
@@ -204,9 +220,10 @@ A few things added after a full sanity-check pass of the codebase:
 go mod tidy
 ```
 
-This needs real internet access to resolve `dank/rlapi`, Wails, and
-`systray` versions — the `go.mod` in this scaffold has placeholder
-version pins.
+`go.mod` is pinned to real, resolvable versions (`dank/rlapi` v0.1.23,
+Wails v2.9.2, `systray` v1.2.2) — this needs internet access to fetch
+them from the module proxy, but no `git` binary is required for that
+(everything resolves through `proxy.golang.org`).
 
 ### 2. Wails frontend tooling
 
@@ -223,10 +240,13 @@ wails dev
 
 ### 3. Auth
 
-`internal/auth/epic.go` opens rlapi's EGS browser login for each
-account you add. Pick whichever identity provider matches how you
-normally sign in (Epic account, or "Log in with Steam") on that
-screen — no SDK downloads, no DLLs.
+`internal/auth/epic.go` opens Epic's login page in your browser for
+each account you add. Pick whichever identity provider matches how
+you normally sign in (Epic account, or "Log in with Steam") on that
+screen — no SDK downloads, no DLLs. After logging in, Epic redirects
+to a page showing a small JSON blob — copy the `authorizationCode`
+value out of it and paste it into the app to finish adding the
+account (see "Frontend contract" above for the exact method calls).
 
 ### 4. Ballchasing tokens
 
@@ -249,12 +269,42 @@ Recommended order, matching what we discussed:
 
 ## Known gaps to fill in before this runs
 
-- [ ] Confirm `dank/rlapi`'s actual public method names against its
-      current godoc (`NewClient`, `LoginWithEpic`, `RefreshToken`,
-      `GetMatchHistory`, `GetProfile`, and their field names are
-      best-guesses based on the README, not verified against
-      compiled source)
 - [ ] Real tray icon asset (currently text-only tooltip)
 - [ ] Window show/hide wiring in `main.go`'s tray callback
 - [ ] Frontend is a functional reference, not a designed UI — that's
-      the part you're taking on
+      the part you're taking on (no `package.json`/build tooling yet
+      either — `frontend/src` is empty)
+- [ ] `LICENSE` copyright line and `go.mod` module path still have
+      placeholder values (`[your name here]` /
+      `github.com/yourusername/...`) — left for you to fill in
+      deliberately rather than guessed
+
+## Version history
+
+### 0.1.1 (current, unpushed)
+- Rewrote `internal/auth/epic.go`, `internal/matches/poller.go`, and
+  the relevant parts of `internal/accounts/manager.go` against
+  `dank/rlapi` v0.1.23's actual downloaded source. The types assumed
+  in 0.1.0 (`rlapi.Client`, `rlapi.NewClient`, `client.LoginWithEpic`,
+  a `.Matches` field on the history response) never existed — the
+  real shape is `EGS` (Epic OAuth) → `PsyNet` (HTTP auth) →
+  `PsyNetRPC` (the actual authenticated connection).
+- This surfaced a real UX consequence: there's no automated browser
+  callback for Epic login, so adding/reauthenticating an account is
+  now a paste-a-code flow (see "Frontend contract"). `go.mod` is
+  pinned to the real `v0.1.23` tag instead of a placeholder `v0.0.0`.
+- Verified `internal/uploader/ballchasing.go` against ballchasing.gg's
+  public API docs, `internal/secrets/secrets.go` against `go-keyring`
+  v0.2.6's real source, and `tray.go` against `systray` v1.2.2's real
+  source — all three were already correct, no changes needed.
+- `go build ./...` and `go vet ./...` (whole module, including
+  `main.go`) pass clean.
+- Git/GitHub set up: private repo, repo-scoped commit identity (no
+  real name/email in history), SSH key auth scoped to this repo only.
+
+### 0.1.0
+- Initial scaffold: system-tray + Wails app structure, multi-account
+  design, ballchasing upload, OS-keyring credential storage, config
+  persistence, poll-overlap and failed-upload-retry handling. The
+  `dank/rlapi` integration was written against documentation/README
+  guesses rather than verified source (see 0.1.1).
