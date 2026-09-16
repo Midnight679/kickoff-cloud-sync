@@ -1,0 +1,19 @@
+# Local config — account list, settings, no secrets (those live in
+# the OS keyring — see internal/secrets). Still excluded since it's
+# machine-specific state, not something to version.
+config.json
+*.token
+.env
+
+# Go build output
+/build/
+*.exe
+*.test
+
+# Wails frontend build output
+frontend/dist/
+frontend/node_modules/
+
+# OS cruft
+.DS_Store
+Thumbs.db

@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8" />
+  <title>RL Replay Uploader</title>
+  <style>
+    /* Placeholder styling only — replace freely. */
+    body { font-family: sans-serif; padding: 1.5rem; background: #1e1e1e; color: #eee; }
+    .account { border: 1px solid #444; border-radius: 8px; padding: 1rem; margin-bottom: 1rem; }
+    .account h3 { margin: 0 0 0.5rem 0; }
+    .account .row { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.5rem; flex-wrap: wrap; }
+    .status-authenticated { color: #4caf50; }
+    .status-needs_reauth { color: #f44336; }
+    .status-authenticating { color: #ff9800; }
+    button { padding: 0.4rem 0.8rem; }
+    input { padding: 0.4rem; }
+    #log { font-size: 0.8rem; opacity: 0.7; white-space: pre-wrap; margin-top: 1rem; }
+    .modal-backdrop { position: fixed; inset: 0; background: rgba(0,0,0,0.6); display: flex; align-items: center; justify-content: center; }
+    .modal { background: #2a2a2a; border-radius: 8px; padding: 1.5rem; width: 320px; }
+    .modal .row { display: flex; flex-direction: column; gap: 0.25rem; margin-bottom: 0.75rem; }
+    .error-text { color: #f44336; font-size: 0.85rem; }
+  </style>
+</head>
+<body>
+  <h2>RL Replay Uploader</h2>
+
+  <div class="row">
+    <label>Global poll interval (secs)</label>
+    <input id="interval" type="number" min="10" />
+    <button id="save-interval">Save</button>
+  </div>
+
+  <div class="row">
+    <label>Network timeout (secs)</label>
+    <input id="timeout" type="number" min="5" />
+    <button id="save-timeout">Save</button>
+  </div>
+
+  <div id="accounts"></div>
+
+  <button id="add-account">+ Add Account</button>
+
+  <div id="modal-root"></div>
+  <div id="log"></div>
+
+  <script>
+    const log = (msg) => {
+      const el = document.getElementById('log');
+      el.textContent = `[${new Date().toLocaleTimeString()}] ${msg}\n` + el.textContent;
+    };
+
+    const fmtTime = (isoOrNull) => isoOrNull ? new Date(isoOrNull).toLocaleTimeString() : '—';
+    const fmtName = (a) => a.friendly_name ? `${a.display_name} (${a.friendly_name})` : a.display_name;
+
+    async function loadPollInterval() {
+      const secs = await window.go.main.App.GetPollIntervalSecs();
+      document.getElementById('interval').value = secs;
+    }
+
+    async function loadHTTPTimeout() {
+      const secs = await window.go.main.App.GetHTTPTimeoutSecs();
+      document.getElementById('timeout').value = secs;
+    }
+
+    async function refreshAccounts() {
+      const list = await window.go.main.App.ListAccounts();
+      const container = document.getElementById('accounts');
+
+      // This does a full rebuild below, which would otherwise wipe
+      // out anything the user is mid-typing (e.g. a token) every
+      // time this fires — which is often, since it runs after every
+      // poll. Snapshot current input values (and which one has
+      // focus) first, then restore them after rebuilding.
+      const preserved = {};
+      let focusedKey = null;
+      container.querySelectorAll('input[data-field]').forEach((input) => {
+        const box = input.closest('.account');
+        if (!box) return;
+        const key = `${box.dataset.accountId}:${input.dataset.field}`;
+        preserved[key] = input.value;
+        if (document.activeElement === input) focusedKey = key;
+      });
+
+      container.innerHTML = '';
+
+      for (const acct of list) {
+        const box = document.createElement('div');
+        box.className = 'account';
+        box.dataset.accountId = acct.id;
+        box.innerHTML = `
+          <h3>${fmtName(acct)}</h3>
+          <div class="row">
+            <span class="status-${acct.auth_status}">${acct.auth_status}</span>
+            ${acct.auth_status !== 'authenticated' ? `<button data-action="reauth">Reauth</button>` : ''}
+          </div>
+          <div class="row">
+            <span>Last poll: ${fmtTime(acct.last_poll_time)}</span>
+            <span>Next poll: ${acct.paused ? 'paused' : fmtTime(acct.next_poll_time)}</span>
+          </div>
+          <div class="row">
+            <input type="password" placeholder="ballchasing token" data-field="token" value="${acct.has_token ? '••••••••' : ''}" />
+            <button data-action="save-token">Save Token</button>
+          </div>
+          <div class="row">
+            <button data-action="poll-now">Poll Now</button>
+            <button data-action="toggle-pause">${acct.paused ? 'Resume' : 'Pause'}</button>
+            <button data-action="remove">Remove</button>
+          </div>
+        `;
+
+        box.querySelector('[data-action="reauth"]')?.addEventListener('click', async () => {
+          log(`Reauthenticating ${fmtName(acct)}...`);
+          await window.go.main.App.ReauthAccount(acct.id);
+          refreshAccounts();
+        });
+        box.querySelector('[data-action="save-token"]').addEventListener('click', async () => {
+          const token = box.querySelector('[data-field="token"]').value;
+          await window.go.main.App.SetAccountBallchasingToken(acct.id, token);
+          log(`Saved token for ${fmtName(acct)}.`);
+        });
+        box.querySelector('[data-action="poll-now"]').addEventListener('click', async () => {
+          log(`Polling ${fmtName(acct)}...`);
+          await window.go.main.App.PollAccountNow(acct.id);
+          refreshAccounts();
+        });
+        box.querySelector('[data-action="toggle-pause"]').addEventListener('click', async () => {
+          if (acct.paused) await window.go.main.App.ResumeAccount(acct.id);
+          else await window.go.main.App.PauseAccount(acct.id);
+          refreshAccounts();
+        });
+        box.querySelector('[data-action="remove"]').addEventListener('click', async () => {
+          if (!confirm(`Remove ${fmtName(acct)}?`)) return;
+          await window.go.main.App.RemoveAccount(acct.id);
+          refreshAccounts();
+        });
+
+        container.appendChild(box);
+      }
+
+      // Restore whatever was captured above.
+      container.querySelectorAll('input[data-field]').forEach((input) => {
+        const box = input.closest('.account');
+        if (!box) return;
+        const key = `${box.dataset.accountId}:${input.dataset.field}`;
+        if (key in preserved) {
+          input.value = preserved[key];
+          if (key === focusedKey) input.focus();
+        }
+      });
+    }
+
+    // --- Add account wizard: step 1 (login) -> step 2 (token + friendly name) ---
+
+    function closeModal() {
+      document.getElementById('modal-root').innerHTML = '';
+    }
+
+    function showConfirmStep(pendingID, epicDisplayName) {
+      const root = document.getElementById('modal-root');
+      root.innerHTML = `
+        <div class="modal-backdrop">
+          <div class="modal">
+            <h3>Logged in as ${epicDisplayName}</h3>
+            <div class="row">
+              <label>Friendly name (optional)</label>
+              <input id="wizard-friendly" placeholder="e.g. Main, Smurf, Grinding acct" />
+            </div>
+            <div class="row">
+              <label>ballchasing.com API token</label>
+              <input id="wizard-token" type="password" placeholder="paste your token" />
+            </div>
+            <div class="row error-text" id="wizard-error"></div>
+            <div class="row">
+              <button id="wizard-confirm">Confirm</button>
+              <button id="wizard-cancel">Cancel</button>
+            </div>
+          </div>
+        </div>
+      `;
+
+      document.getElementById('wizard-cancel').onclick = async () => {
+        await window.go.main.App.CancelAddAccount(pendingID);
+        closeModal();
+      };
+
+      document.getElementById('wizard-confirm').onclick = async () => {
+        const token = document.getElementById('wizard-token').value;
+        const friendlyName = document.getElementById('wizard-friendly').value;
+        const errEl = document.getElementById('wizard-error');
+        errEl.textContent = 'Validating token...';
+        try {
+          await window.go.main.App.ConfirmAddAccount(pendingID, token, friendlyName);
+          closeModal();
+          log(`Added account: ${epicDisplayName}${friendlyName ? ' (' + friendlyName + ')' : ''}`);
+          refreshAccounts();
+        } catch (e) {
+          // Pending login is preserved on the backend — just show
+          // the error and let the user retry with a different token.
+          errEl.textContent = String(e);
+        }
+      };
+    }
+
+    document.getElementById('add-account').onclick = async () => {
+      log('Opening Epic login in your browser...');
+      try {
+        const pending = await window.go.main.App.BeginAddAccount();
+        showConfirmStep(pending.pending_id, pending.epic_display_name);
+      } catch (e) {
+        log(`Login failed: ${e}`);
+      }
+    };
+
+    document.getElementById('save-interval').onclick = async () => {
+      const secs = parseInt(document.getElementById('interval').value, 10);
+      await window.go.main.App.SetPollIntervalSecs(secs);
+      log(`Poll interval set to ${secs}s.`);
+    };
+
+    document.getElementById('save-timeout').onclick = async () => {
+      const secs = parseInt(document.getElementById('timeout').value, 10);
+      try {
+        await window.go.main.App.SetHTTPTimeoutSecs(secs);
+        log(`Network timeout set to ${secs}s.`);
+      } catch (e) {
+        log(`Couldn't set timeout: ${e}`);
+      }
+    };
+
+    window.runtime.EventsOn('accounts-changed', refreshAccounts);
+    window.runtime.EventsOn('match-detected', (p) => log(`[${p.account_id}] match detected: ${p.match_id}`));
+    window.runtime.EventsOn('upload-complete', (p) => log(`[${p.account_id}] uploaded: ${p.message}`));
+    window.runtime.EventsOn('upload-error', (p) => log(`[${p.account_id}] upload error: ${p.message}`));
+    window.runtime.EventsOn('auth-error', (p) => log(`[${p.account_id}] auth error: ${p.message}`));
+
+    loadPollInterval();
+    loadHTTPTimeout();
+    refreshAccounts();
+  </script>
+</body>
+</html>
