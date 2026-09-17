@@ -395,8 +395,15 @@ func (m *Manager) ConfirmAddAccount(ctx context.Context, pendingID, ballchasingT
 // Nothing was persisted, so this is just cleanup.
 func (m *Manager) CancelAddAccount(pendingID string) {
 	m.mu.Lock()
+	pending := m.pending[pendingID]
 	delete(m.pending, pendingID)
 	m.mu.Unlock()
+
+	// The login in step 1 opened a live connection for an account that
+	// is now never going to be added.
+	if pending != nil {
+		closeRPC(pending.rpc)
+	}
 }
 
 // BeginReauth flags an existing account as mid-login, so the UI can
@@ -458,8 +465,13 @@ func (m *Manager) SubmitReauthCode(ctx context.Context, id, authCode string) err
 	if result.DisplayName != "" {
 		m.cfg.Accounts[idx].DisplayName = result.DisplayName
 	}
+	var replaced *rlapi.PsyNetRPC
+	if old := m.runtimes[id]; old != nil && !m.polling[id] {
+		replaced = old.rpc
+	}
 	m.runtimes[id] = &runtimeState{rpc: result.RPC, status: StatusAuthenticated}
 	m.mu.Unlock()
+	closeRPC(replaced)
 
 	existing, err := secrets.Load(id)
 	if err != nil {
@@ -502,8 +514,16 @@ func (m *Manager) RemoveAccount(id string) error {
 		return errors.New("account not found")
 	}
 	m.cfg.Accounts = append(m.cfg.Accounts[:idx], m.cfg.Accounts[idx+1:]...)
+	// If this account is mid-poll, leave its connection to pollAccount,
+	// which closes it once the poll is done. rlapi v0.1.23 panics in the
+	// goroutine waiting on a request if the socket is closed under it.
+	var removed *rlapi.PsyNetRPC
+	if rt := m.runtimes[id]; rt != nil && !m.polling[id] {
+		removed = rt.rpc
+	}
 	delete(m.runtimes, id)
 	m.mu.Unlock()
+	closeRPC(removed)
 
 	// Best-effort: clean up stored credentials, but don't block
 	// removing the account from the list if the keyring is
@@ -876,7 +896,15 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 	defer func() {
 		m.mu.Lock()
 		delete(m.polling, id)
+		// The account was removed, or reauthenticated onto a new
+		// connection, while this poll was using rpc. Whoever did that
+		// left rpc open for this poll to finish with; close it now.
+		rt := m.runtimes[id]
+		orphaned := rt == nil || rt.rpc != rpc
 		m.mu.Unlock()
+		if orphaned {
+			closeRPC(rpc)
+		}
 	}()
 
 	rpc, ok := m.ensureConnected(ctx, id, rpc, manual)
@@ -1043,6 +1071,17 @@ func finalizeReplayTitle(token, replayID, accountDisplayName string) {
 	title := uploader.BuildTitle(details, accountDisplayName)
 	if err := uploader.SetReplayTitle(token, replayID, title); err != nil {
 		log.Printf("could not set replay title for %s: %v", replayID, err)
+	}
+}
+
+// closeRPC shuts down a PsyNet connection this app no longer needs.
+// rlapi keeps a connection open with its own ping loop until Close is
+// called, so dropping the last reference does not end it: the socket,
+// its goroutines and the account's live PsyNet session all stay up
+// until the app exits. Safe on nil and on an already closed connection.
+func closeRPC(rpc *rlapi.PsyNetRPC) {
+	if rpc != nil {
+		_ = rpc.Close()
 	}
 }
 
