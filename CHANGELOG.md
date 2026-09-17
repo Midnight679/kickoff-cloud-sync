@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.4
+- **Private match series grouping**: consecutive private matches against the same custom-named opponent (e.g. a scrim session) are now automatically bundled into a ballchasing.com group. A one-off private match doesn't get a group of its own — only a second consecutive match against the same opponent confirms it's a series. Can be turned off in Settings.
+- **Reliability and correctness fixes** (contributed by [ABowlOfEleven](https://github.com/ABowlOfEleven) via a thorough code review pass):
+  - Fixed a fatal crash (`concurrent map iteration and map write`) that could kill the app during a save.
+  - Fixed accounts getting permanently stuck on "needs reauth" after a transient network drop (e.g. the app starting before the network is up).
+  - Added a single-instance guard — a second launch now just shows the existing window instead of running a duplicate app.
+  - An unreadable `config.json` is now backed up instead of being silently overwritten with an empty one; saves are `fsync`ed before the rename.
+  - Fixed a crash and a goroutine leak that could occur when a connection dropped mid-poll; match-history requests now have a deadline.
+  - PsyNet connections are now properly closed when an account is removed, an add-account attempt is cancelled, or a reauth replaces one.
+  - The same Epic account can no longer be added twice, and a reauth into the wrong Epic account is now rejected instead of silently taking over the entry.
+  - Editing an existing account's ballchasing token now validates it, matching what adding a new account already does.
+
 ## 0.2.3
 - **Poll summary now always shows**, including "0 found, 0 uploaded", instead of disappearing when a poll finds nothing — gives positive confirmation a poll actually ran.
 - **Update checker improvements**: now rechecks every 24 hours instead of just once at startup. Added "Dismiss" and "Skip this version" to the update banner, plus a "Check for updates" button in Settings that always reports the real state.
