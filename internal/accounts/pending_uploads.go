@@ -182,7 +182,7 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool) {
 
 		_ = os.Remove(fullPath)
 		m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
-		go finalizeReplayTitle(token, result.ID, displayName)
+		go m.finalizeReplay(accountID, token, result.ID, displayName)
 	}
 }
 

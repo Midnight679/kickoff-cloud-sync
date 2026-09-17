@@ -45,6 +45,16 @@ ballchasing.com rejects true duplicate uploads server-side — uploading a repla
 
 Each `config.Account` has a `ReplayVisibility` field (`public`/`unlisted`/`private`). `Account.Visibility()` defaults it to `public` for any account with the field unset — including every account created before this setting existed, so no config migration is needed. It's read at upload time in both `handleMatch` and `retryPendingUploads` and passed straight through to `uploader.UploadReplay`. Changing it only affects future uploads; anything already uploaded keeps whatever visibility it was uploaded with.
 
+## Private match series grouping
+
+`Manager.assignReplayGroup` bundles consecutive private-match uploads from the same account into a ballchasing.com group when both teams have a custom lobby name (e.g. "POLAR BEARS vs WHISKER GOBLINS") — the same custom-name detection `uploader.BuildTitle` already does for titles. "Consecutive" means same-account chronological adjacency, not a time window: a non-private upload, or a private one with a different team pair (order-insensitive — `uploader.CustomTeamPair` sorts it, so the teams swapping blue/orange sides between games doesn't break the streak), resets the tracked pair.
+
+Grouping is retroactive rather than eager: the first match of a new pair is only tracked (`runtimeState.lastPrivateTeamPair`/`lastPrivateReplayID`), not grouped. Only once a *second* consecutive match confirms the same pair is a group actually created (`uploader.CreateGroup`) and both replays patched into it (`uploader.SetReplayGroup`) — so a one-off opponent never gets a group of its own. This state is ephemeral runtime state per account, like `lastPoll`, not persisted; a restart mid-series just starts a fresh streak on the next private match.
+
+Team names for a private match are only known after ballchasing's own post-upload parse, so group assignment happens from the same `finalizeReplay` hook that sets the title, not at upload time — a `group` upload-time parameter exists on ballchasing's API but isn't usable here for that reason.
+
+The whole feature is gated by `config.Config.DisableGroupPrivateSeries` (inverted, so old configs and the zero value both mean "on") — exposed as a checkbox in Settings via `GetGroupPrivateSeriesEnabled`/`SetGroupPrivateSeriesEnabled`.
+
 ## Failed-upload retry
 
 If a replay downloads successfully but the ballchasing upload fails (network hiccup, ballchasing's daily upload quota, etc.), it's moved into a persistent `pending-uploads` directory instead of being lost. `retryPendingUploads` retries everything there once per poll cycle (scheduled or manual), using the account's *current* token, so fixing a bad token retroactively picks up anything that failed because of it.
@@ -57,7 +67,7 @@ While a replay is waiting in this cache, the normal per-match handler skips it e
 
 ## ballchasing rate limiting
 
-Confirmed against ballchasing's own API docs (https://ballchasing.com/doc/api): accounts without a Patreon tier are limited to 2 calls/second on `GET /replays/{id}` and `PATCH /replays/{id}` (1000/hour each), with a 429 response when exceeded. The upload endpoint's own doc page states no explicit number, but in practice a burst of new matches from one poll — each triggering an upload plus a `finalizeReplayTitle` goroutine that calls both of the limited endpoints — could still trip the limit.
+Confirmed against ballchasing's own API docs (https://ballchasing.com/doc/api): accounts without a Patreon tier are limited to 2 calls/second on `GET /replays/{id}` and `PATCH /replays/{id}` (1000/hour each), with a 429 response when exceeded. The upload endpoint's own doc page states no explicit number, but in practice a burst of new matches from one poll — each triggering an upload plus a `finalizeReplay` goroutine that calls the title/group endpoints (`GetReplay`, `SetReplayTitle`, and for a private-match series, `CreateGroup`/`SetReplayGroup` — see [Private match series grouping](#private-match-series-grouping)) — could still trip the limit.
 
 `internal/uploader.ballchasingLimiter` is a single shared `golang.org/x/time/rate.Limiter` (1.5/sec, burst 1 — deliberately under the documented ceiling) that every outbound call in the package waits on via `doWithRetry`, regardless of which one of `ValidateToken`/`UploadReplay`/`GetReplay`/`SetReplayTitle` is calling. `doWithRetry` takes a request *factory* rather than a built request, since a request with a body (the multipart upload, the JSON title patch) can only be sent once — each retry attempt needs its own fresh one. A 429 triggers up to 3 retries with doubling backoff (2s, 4s, 8s) before giving up; anything else is returned immediately. Covered by `internal/uploader/ballchasing_test.go` against a real `httptest.Server`, not just reasoned about.
 
@@ -98,6 +108,6 @@ Uninstalling always kills any running instance first (the app hides to the tray 
 ## Reliability details
 
 - **Poll overlap guard** — `Manager.polling` tracks which accounts are mid-poll, so a manual "Poll Now" click can't race the scheduled cycle for the same account.
-- **Config save race** — all writers go through `Manager.persist()`, which re-reads the freshest in-memory config right before writing and serializes disk writes through a dedicated mutex. `config.Save` itself writes atomically (temp file + rename).
+- **Config save race** — all writers go through `Manager.persist()`, which re-reads the freshest in-memory config right before writing and serializes disk writes through a dedicated mutex. The snapshot is a deep copy (`config.Config.Clone()`), not a plain struct copy — a shallow copy would still share every account's `UploadedMatches` map with the live config, and marshalling it after the lock is released could race a concurrent map write into a fatal `concurrent map iteration and map write`. `config.Save` itself writes atomically (temp file + `fsync` + rename), and keeps an unreadable existing file aside (`config.json.corrupt-<unix time>`) rather than letting a failed load's fallback-to-defaults silently overwrite it.
 - **Configurable network timeout** — one shared `*http.Client` used by every outbound call, swapped atomically when the timeout setting changes, so a single hung request can't stall the whole poll cycle.
 - **Credential storage** — Epic refresh tokens and ballchasing tokens live in the OS's native credential store (`zalando/go-keyring`), keyed by account ID. `config.Account` holds no secrets, only a `HasBallchasingToken` flag. This depends on a keyring service being available; on a Linux session without one running, credential operations return `secrets.ErrUnavailable` rather than silently falling back to plaintext.

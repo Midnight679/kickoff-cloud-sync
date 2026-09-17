@@ -76,6 +76,23 @@ type runtimeState struct {
 	// accumulated across cycles. It's deliberately not persisted:
 	// this is "what just happened," not history.
 	lastPoll *PollResult
+
+	// groupMu, lastPrivateTeamPair, lastPrivateReplayID and
+	// lastPrivateGroupID back the private-scrim-series grouping
+	// heuristic in assignReplayGroup — see its comment for the actual
+	// logic. Like lastPoll, deliberately not persisted: a group
+	// streak only matters within a live session. groupMu serializes
+	// the finalizeReplay goroutines this account's uploads launch, so
+	// two private uploads handled back-to-back (e.g. catching up on a
+	// backlog) don't race on this state — those goroutines are
+	// launched in match order, though this lock alone doesn't
+	// guarantee they acquire it in that same order under heavy
+	// scheduler contention, an acceptable tradeoff given how rare
+	// multi-match bursts are in practice.
+	groupMu             sync.Mutex
+	lastPrivateTeamPair [2]string
+	lastPrivateReplayID string
+	lastPrivateGroupID  string
 }
 
 // PollResult summarizes what a single poll cycle did for one
@@ -657,6 +674,26 @@ func (m *Manager) SetHTTPTimeoutSecs(secs int) error {
 	return m.persist()
 }
 
+// GetGroupPrivateSeriesEnabled reports whether the private-scrim-
+// series ballchasing grouping heuristic (see assignReplayGroup) is
+// currently turned on — the default for every account.
+func (m *Manager) GetGroupPrivateSeriesEnabled() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return !m.cfg.DisableGroupPrivateSeries
+}
+
+// SetGroupPrivateSeriesEnabled turns the grouping heuristic on or
+// off, for every account. Turning it off doesn't undo any grouping
+// already applied on ballchasing.com — it only stops new group
+// assignments going forward.
+func (m *Manager) SetGroupPrivateSeriesEnabled(enabled bool) error {
+	m.mu.Lock()
+	m.cfg.DisableGroupPrivateSeries = !enabled
+	m.mu.Unlock()
+	return m.persist()
+}
+
 // GetSkippedUpdateVersion returns the release tag the user last
 // chose "skip this version" on, or "" if none.
 func (m *Manager) GetSkippedUpdateVersion() string {
@@ -1098,28 +1135,99 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 
 	_ = m.persist()
 	m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
-	go finalizeReplayTitle(token, result.ID, displayName)
+	go m.finalizeReplay(accountID, token, result.ID, displayName)
 	return true, true
 }
 
-// finalizeReplayTitle best-effort renames a freshly uploaded replay
-// using ballchasing's own authoritative parse of it (mode, teams,
-// win/loss) instead of leaving it as the bare uploaded filename.
-// Never treated as a failure if it doesn't work out — the upload
-// itself already succeeded either way, and this only fails to
-// decorate it. Run in its own goroutine since GetReplayWithRetry can
-// take several seconds waiting on ballchasing's processing, and
-// there's no need to hold up the poll cycle for it.
-func finalizeReplayTitle(token, replayID, accountDisplayName string) {
+// finalizeReplay does two best-effort things once ballchasing has
+// finished parsing a freshly uploaded replay: renames it using
+// ballchasing's own authoritative parse (mode, teams, win/loss)
+// instead of leaving it as the bare uploaded filename, and applies
+// the scrim-series grouping heuristic (see assignReplayGroup).
+// Neither is treated as a failure if it doesn't work out — the
+// upload itself already succeeded either way. Run in its own
+// goroutine since GetReplayWithRetry can take several seconds
+// waiting on ballchasing's processing, and there's no need to hold up
+// the poll cycle for it.
+func (m *Manager) finalizeReplay(accountID, token, replayID, accountDisplayName string) {
 	details, err := uploader.GetReplayWithRetry(token, replayID)
 	if err != nil {
-		log.Printf("could not fetch replay details to set title for %s: %v", replayID, err)
+		log.Printf("could not fetch replay details to finalize %s: %v", replayID, err)
 		return
 	}
+
 	title := uploader.BuildTitle(details, accountDisplayName)
 	if err := uploader.SetReplayTitle(token, replayID, title); err != nil {
 		log.Printf("could not set replay title for %s: %v", replayID, err)
 	}
+
+	m.assignReplayGroup(accountID, token, replayID, details)
+}
+
+// assignReplayGroup implements the "private scrim series" grouping
+// heuristic: consecutive private uploads from the same account with
+// the same pair of custom team names (see uploader.CustomTeamPair)
+// get bundled into one ballchasing group. The group is created
+// lazily — only once a second consecutive match confirms the pair
+// actually repeats — and the first match of the pair, uploaded
+// before that confirmation, is patched into the new group
+// retroactively. This means a one-off private match against an
+// opponent you never play again never gets a group of its own.
+//
+// Any non-private upload, or a private one missing a custom name on
+// either side, breaks the streak — the next private match (even
+// against a previously-seen pair) starts tracking fresh, matching
+// "consecutively" as same-account chronological adjacency rather than
+// a time window.
+func (m *Manager) assignReplayGroup(accountID, token, replayID string, details *uploader.ReplayDetails) {
+	m.mu.Lock()
+	enabled := !m.cfg.DisableGroupPrivateSeries
+	rt := m.runtimes[accountID]
+	m.mu.Unlock()
+	if !enabled || rt == nil {
+		return
+	}
+
+	pair, ok := uploader.CustomTeamPair(details)
+
+	rt.groupMu.Lock()
+	defer rt.groupMu.Unlock()
+
+	if !ok {
+		rt.lastPrivateTeamPair = [2]string{}
+		rt.lastPrivateReplayID = ""
+		rt.lastPrivateGroupID = ""
+		return
+	}
+
+	if rt.lastPrivateReplayID == "" || rt.lastPrivateTeamPair != pair {
+		// First match of a new (or first-ever) pair — track it, but
+		// don't create a group until a second match confirms it.
+		rt.lastPrivateTeamPair = pair
+		rt.lastPrivateReplayID = replayID
+		rt.lastPrivateGroupID = ""
+		return
+	}
+
+	groupID := rt.lastPrivateGroupID
+	if groupID == "" {
+		name := fmt.Sprintf("%s vs %s — %s", pair[0], pair[1], time.Now().Format("Jan 2"))
+		result, err := uploader.CreateGroup(token, name)
+		if err != nil {
+			log.Printf("could not create ballchasing group %q: %v", name, err)
+			rt.lastPrivateReplayID = replayID
+			return
+		}
+		groupID = result.ID
+		if err := uploader.SetReplayGroup(token, rt.lastPrivateReplayID, groupID); err != nil {
+			log.Printf("could not add earlier replay %s to group %s: %v", rt.lastPrivateReplayID, groupID, err)
+		}
+		rt.lastPrivateGroupID = groupID
+	}
+	if err := uploader.SetReplayGroup(token, replayID, groupID); err != nil {
+		log.Printf("could not add replay %s to group %s: %v", replayID, groupID, err)
+	}
+	rt.lastPrivateReplayID = replayID
 }
 
 // closeRPC shuts down a PsyNet connection this app no longer needs.

@@ -12,6 +12,7 @@ export function SettingsBar({ onLog }: Props) {
   const [pollIntervalMins, setPollIntervalMins] = useState<number | "">("");
   const [httpTimeout, setHttpTimeout] = useState<number | "">("");
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
+  const [groupPrivateSeries, setGroupPrivateSeries] = useState(true);
   const [error, setError] = useState("");
   const [checkingUpdate, setCheckingUpdate] = useState(false);
   const [updateCheckResult, setUpdateCheckResult] = useState("");
@@ -20,6 +21,7 @@ export function SettingsBar({ onLog }: Props) {
     api.getPollIntervalSecs().then((secs) => setPollIntervalMins(Math.round(secs / 60)));
     api.getHttpTimeoutSecs().then(setHttpTimeout);
     api.getLaunchAtLogin().then(setLaunchAtLogin);
+    api.getGroupPrivateSeriesEnabled().then(setGroupPrivateSeries);
   }, []);
 
   async function toggleLaunchAtLogin(checked: boolean) {
@@ -33,6 +35,17 @@ export function SettingsBar({ onLog }: Props) {
     } catch (e) {
       setError(errorMessage(e));
       api.getLaunchAtLogin().then(setLaunchAtLogin);
+    }
+  }
+
+  async function toggleGroupPrivateSeries(checked: boolean) {
+    setGroupPrivateSeries(checked);
+    try {
+      await api.setGroupPrivateSeriesEnabled(checked);
+      onLog(checked ? "Private match series will be grouped on ballchasing.com." : "Private match series grouping turned off.");
+    } catch (e) {
+      setError(errorMessage(e));
+      api.getGroupPrivateSeriesEnabled().then(setGroupPrivateSeries);
     }
   }
 
@@ -107,6 +120,14 @@ export function SettingsBar({ onLog }: Props) {
           onChange={(e) => toggleLaunchAtLogin(e.target.checked)}
         />
         Launch at Windows startup
+      </label>
+      <label className="settings-bar__field settings-bar__checkbox">
+        <input
+          type="checkbox"
+          checked={groupPrivateSeries}
+          onChange={(e) => toggleGroupPrivateSeries(e.target.checked)}
+        />
+        Group private match series on ballchasing.com
       </label>
       <div className="settings-bar__field">
         <button className="btn" disabled={checkingUpdate} onClick={checkForUpdate}>

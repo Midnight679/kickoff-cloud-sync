@@ -314,6 +314,17 @@ func (a *App) SetHTTPTimeoutSecs(secs int) error {
 	return a.mgr.SetHTTPTimeoutSecs(secs)
 }
 
+// GetGroupPrivateSeriesEnabled reports whether consecutive private
+// matches against the same custom-named opponent get automatically
+// bundled into a ballchasing group.
+func (a *App) GetGroupPrivateSeriesEnabled() bool {
+	return a.mgr.GetGroupPrivateSeriesEnabled()
+}
+
+func (a *App) SetGroupPrivateSeriesEnabled(enabled bool) error {
+	return a.mgr.SetGroupPrivateSeriesEnabled(enabled)
+}
+
 // GetLaunchAtLogin reports whether the app is currently registered to
 // start automatically when Windows logs in — read live from the
 // registry (see internal/autostart), not a cached setting, so it

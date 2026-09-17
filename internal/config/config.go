@@ -84,6 +84,16 @@ type Config struct {
 	// exactly this version. A manual check from Settings always
 	// reports the real state regardless of this.
 	SkippedUpdateVersion string `json:"skipped_update_version,omitempty"`
+
+	// DisableGroupPrivateSeries turns off the private-scrim-series
+	// ballchasing grouping heuristic (see assignReplayGroup in
+	// internal/accounts) when true. Stored inverted (rather than e.g.
+	// GroupPrivateSeriesEnabled) so the feature defaults to on for
+	// every existing config on disk from before this setting existed
+	// — Go's zero value for a bool is false either way, so "off by
+	// default" would otherwise be indistinguishable from "the user
+	// turned it off."
+	DisableGroupPrivateSeries bool `json:"disable_group_private_series,omitempty"`
 }
 
 // Clone returns a deep copy of c: the Accounts slice, every account's

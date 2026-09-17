@@ -45,6 +45,10 @@ export const api = {
   getHttpTimeoutSecs: () => app().GetHTTPTimeoutSecs() as Promise<number>,
   setHttpTimeoutSecs: (secs: number) => app().SetHTTPTimeoutSecs(secs) as Promise<void>,
 
+  getGroupPrivateSeriesEnabled: () => app().GetGroupPrivateSeriesEnabled() as Promise<boolean>,
+  setGroupPrivateSeriesEnabled: (enabled: boolean) =>
+    app().SetGroupPrivateSeriesEnabled(enabled) as Promise<void>,
+
   getServerLogs: () => app().GetServerLogs() as Promise<string[]>,
 
   getLaunchAtLogin: () => app().GetLaunchAtLogin() as Promise<boolean>,

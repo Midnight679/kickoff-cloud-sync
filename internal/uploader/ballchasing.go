@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -21,6 +22,7 @@ import (
 const uploadURL = "https://ballchasing.com/api/v2/upload"
 const pingURL = "https://ballchasing.com/api/"
 const replayURLBase = "https://ballchasing.com/api/replays/"
+const groupsURL = "https://ballchasing.com/api/groups"
 
 // ballchasingLimiter throttles every outbound call to ballchasing.com
 // to comfortably stay under their documented rate limit for accounts
@@ -252,6 +254,84 @@ func SetReplayTitle(token, replayID, title string) error {
 	return nil
 }
 
+// CreateGroupResult is ballchasing's response to a successful
+// POST /groups.
+type CreateGroupResult struct {
+	ID   string `json:"id"`
+	Link string `json:"link"`
+}
+
+// CreateGroup creates a new top-level replay group (see the scrim-
+// series grouping feature in internal/accounts, the only caller).
+// player_identification is fixed to "by-id" since every replay in a
+// group comes from the same uploading account, and
+// team_identification to "by-player-clusters" so a mid-session sub
+// doesn't split the series into two groups.
+func CreateGroup(token, name string) (*CreateGroupResult, error) {
+	body, err := json.Marshal(map[string]string{
+		"name":                  name,
+		"player_identification": "by-id",
+		"team_identification":   "by-player-clusters",
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	resp, err := doWithRetry(func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodPost, groupsURL, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", token)
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusCreated {
+		data, _ := io.ReadAll(resp.Body)
+		return nil, fmt.Errorf("creating ballchasing group failed (%d): %s", resp.StatusCode, data)
+	}
+
+	var result CreateGroupResult
+	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
+		return nil, err
+	}
+	return &result, nil
+}
+
+// SetReplayGroup assigns an already-uploaded replay to groupID, or
+// removes it from whatever group it's in if groupID is "".
+func SetReplayGroup(token, replayID, groupID string) error {
+	body, err := json.Marshal(map[string]string{"group": groupID})
+	if err != nil {
+		return err
+	}
+
+	resp, err := doWithRetry(func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodPatch, replayURLBase+replayID, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", token)
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	})
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusNoContent && resp.StatusCode != http.StatusOK {
+		data, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("setting replay group failed (%d): %s", resp.StatusCode, data)
+	}
+	return nil
+}
+
 // BuildTitle constructs a descriptive replay title from ballchasing's
 // own parsed details, rather than leaving the default (the uploaded
 // file's bare name).
@@ -303,10 +383,41 @@ func teamRoster(t ReplayTeam) string {
 // private match's lobby, or its player roster if not (defaultName is
 // ballchasing's own generic name for this side — "Blue" or "Orange").
 func teamLabel(t ReplayTeam, defaultName string) string {
-	if t.Name != "" && !strings.EqualFold(t.Name, defaultName) {
-		return t.Name
+	if name, ok := customTeamName(t, defaultName); ok {
+		return name
 	}
 	return teamRoster(t)
+}
+
+// customTeamName returns the lobby host's custom name for this side
+// and ok=true, or ok=false if they left it on ballchasing's own
+// generic default ("Blue"/"Orange", passed as defaultName).
+func customTeamName(t ReplayTeam, defaultName string) (name string, ok bool) {
+	if t.Name != "" && !strings.EqualFold(t.Name, defaultName) {
+		return t.Name, true
+	}
+	return "", false
+}
+
+// CustomTeamPair returns the two custom team names of a private
+// match, sorted so that the teams swapping blue/orange sides between
+// games in the same series doesn't look like a different matchup. ok
+// is false for anything that isn't a private match with both sides
+// custom-named — a normal match, or a private match where the host
+// didn't rename one or both teams, has no reliable "matchup identity"
+// to group on.
+func CustomTeamPair(details *ReplayDetails) (pair [2]string, ok bool) {
+	if !strings.EqualFold(details.PlaylistName, "Private") {
+		return pair, false
+	}
+	blue, blueOK := customTeamName(details.Blue, "Blue")
+	orange, orangeOK := customTeamName(details.Orange, "Orange")
+	if !blueOK || !orangeOK {
+		return pair, false
+	}
+	pair = [2]string{blue, orange}
+	sort.Strings(pair[:])
+	return pair, true
 }
 
 func findViewerTeam(details *ReplayDetails, viewerName string) (viewer, opponent ReplayTeam, ok bool) {
