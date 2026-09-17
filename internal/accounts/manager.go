@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net"
+	"net/url"
 	"os"
 	"sync"
 	"time"
@@ -216,6 +218,16 @@ func (m *Manager) Init(ctx context.Context) {
 		accountSecrets, err := secrets.Load(acct.ID)
 		if err == nil && accountSecrets.EpicRefreshToken != "" {
 			result, loginErr := auth.EpicLoginWithRefreshToken(ctx, accountSecrets.EpicRefreshToken)
+			if loginErr != nil && isTransientNetErr(loginErr) {
+				// Epic never answered (no network yet, DNS failure,
+				// timeout), so nothing says the stored token is bad.
+				// This is the normal case for a launch-at-login start
+				// that beats the network coming up. Use the same lazy
+				// state a paused account gets: no live connection, and
+				// ensureConnected retries on every poll from here.
+				log.Printf("startup login for %s hit a network error, will retry on the next poll: %v", acct.ID, loginErr)
+				status = StatusAuthenticated
+			}
 			if loginErr == nil {
 				rpc = result.RPC
 				status = StatusAuthenticated
@@ -741,6 +753,16 @@ func (m *Manager) ensureConnected(ctx context.Context, id string, rpc *rlapi.Psy
 
 	result, err := auth.EpicLoginWithRefreshToken(ctx, accountSecrets.EpicRefreshToken)
 	if err != nil {
+		if isTransientNetErr(err) {
+			// The request never got an answer, so the refresh token was
+			// not rejected and is still good. Skip this poll and leave
+			// the account's status alone; the next cycle tries again.
+			// Flagging needs_reauth here would take the account out of
+			// the scheduled cycle until a full browser login, over
+			// nothing more than a brief network drop.
+			m.emit(EventAuthError, EventPayload{AccountID: id, Message: fmt.Sprintf("network error while reconnecting, will retry on the next poll: %v", err), Manual: manual})
+			return nil, false
+		}
 		m.flagNeedsReauth(id, fmt.Sprintf("connection lost and silent reconnect failed: %v", err), manual)
 		return nil, false
 	}
@@ -762,6 +784,19 @@ func (m *Manager) ensureConnected(ctx context.Context, id string, rpc *rlapi.Psy
 
 	m.emit(EventReconnected, EventPayload{AccountID: id, Message: "connection was dropped (e.g. by DuplicateLogin) and has been silently re-established", Manual: manual})
 	return result.RPC, true
+}
+
+// isTransientNetErr reports whether err came from the network
+// transport itself (no route, DNS failure, timeout, connection reset)
+// rather than from Epic or PsyNet answering and rejecting the login.
+// rlapi wraps its HTTP and WebSocket errors with %w, so the underlying
+// *url.Error / net.Error is still reachable through the chain. An
+// actual rejection (expired or revoked refresh token) comes back as a
+// plain formatted error and is correctly not matched here.
+func isTransientNetErr(err error) bool {
+	var urlErr *url.Error
+	var netErr net.Error
+	return errors.As(err, &urlErr) || errors.As(err, &netErr)
 }
 
 // flagNeedsReauth marks an account as needing reauth and emits an
