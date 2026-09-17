@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"log"
+	"sync"
 
 	"git.sr.ht/~jackmordaunt/go-toast/v2"
 
@@ -13,12 +14,22 @@ import (
 	"github.com/Midnight679/kickoff-cloud-sync/internal/autostart"
 	"github.com/Midnight679/kickoff-cloud-sync/internal/config"
 	"github.com/Midnight679/kickoff-cloud-sync/internal/logbuf"
+	"github.com/Midnight679/kickoff-cloud-sync/internal/updatecheck"
 )
+
+// appVersion is this build's version, checked against GitHub's
+// latest release tag on startup (see checkForUpdate). Bump this
+// alongside wails.json's productVersion and the git tag for every
+// release — nothing reads this from git automatically.
+const appVersion = "0.1.9"
 
 type App struct {
 	ctx    context.Context
 	mgr    *accounts.Manager
 	cancel context.CancelFunc
+
+	updateMu   sync.Mutex
+	updateInfo updatecheck.Info
 }
 
 func NewApp() *App {
@@ -79,6 +90,37 @@ func (a *App) startup(ctx context.Context) {
 	a.mgr.Init(pollCtx)
 	SetTrayErrorState(a.mgr.NeedsAttention())
 	a.mgr.StartScheduledPolling(pollCtx)
+
+	go a.checkForUpdate()
+}
+
+// checkForUpdate runs once at startup. A failure (no network, GitHub
+// unreachable, rate limited) is logged and otherwise ignored — this
+// is a convenience notice, not something that should ever interrupt
+// startup or look like an error to the user.
+func (a *App) checkForUpdate() {
+	info, err := updatecheck.Check(appVersion)
+	if err != nil {
+		log.Printf("update check failed: %v", err)
+		return
+	}
+
+	a.updateMu.Lock()
+	a.updateInfo = info
+	a.updateMu.Unlock()
+
+	if info.Available {
+		runtime.EventsEmit(a.ctx, "update-available", info)
+	}
+}
+
+// GetUpdateInfo returns the result of the startup update check, or
+// its zero value (Available: false) if the check hasn't completed
+// yet or failed.
+func (a *App) GetUpdateInfo() updatecheck.Info {
+	a.updateMu.Lock()
+	defer a.updateMu.Unlock()
+	return a.updateInfo
 }
 
 // GetServerLogs returns everything currently buffered from the

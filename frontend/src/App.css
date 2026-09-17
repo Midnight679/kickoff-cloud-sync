@@ -24,6 +24,18 @@
   align-items: center;
 }
 
+.update-banner {
+  background: color-mix(in srgb, var(--accent) 15%, var(--bg-raised));
+  border: 1px solid var(--accent);
+  border-radius: 6px;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.85rem;
+}
+
+.update-banner a {
+  color: var(--accent);
+}
+
 /* --- shared controls --- */
 
 .input {

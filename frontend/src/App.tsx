@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import type { AccountView, EventPayload } from "./types";
+import type { AccountView, EventPayload, UpdateInfo } from "./types";
 import { api } from "./api";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { AccountCard } from "./components/AccountCard";
@@ -18,6 +18,7 @@ export default function App() {
   const [modal, setModal] = useState<Modal>(null);
   const [log, setLog] = useState<string[]>([]);
   const [view, setView] = useState<View>("accounts");
+  const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
 
   // Persistent until the account is actually reauthenticated — not
   // tied to any single event, so it stays correct across restarts and
@@ -36,6 +37,15 @@ export default function App() {
 
   const refreshAccounts = useCallback(() => {
     api.listAccounts().then(setAccounts);
+  }, []);
+
+  useEffect(() => {
+    // Covers the case where the startup check already finished by
+    // the time this mounts; the event below covers the live update.
+    api.getUpdateInfo().then((info) => info.available && setUpdateInfo(info));
+    const onUpdateAvailable = (info: UpdateInfo) => setUpdateInfo(info);
+    EventsOn("update-available", onUpdateAvailable);
+    return () => EventsOff("update-available");
   }, []);
 
   useEffect(() => {
@@ -94,6 +104,15 @@ export default function App() {
           </button>
         </div>
       </header>
+
+      {updateInfo?.available && (
+        <div className="update-banner">
+          A new version ({updateInfo.latest_version}) is available.{" "}
+          <a href={updateInfo.url} target="_blank" rel="noreferrer">
+            View release
+          </a>
+        </div>
+      )}
 
       {view === "settings" ? (
         <SettingsView eventLog={log} onLog={appendLog} onBack={() => setView("accounts")} />

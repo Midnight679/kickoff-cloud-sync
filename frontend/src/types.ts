@@ -32,3 +32,10 @@ export interface EventPayload {
   // rather than the shared scheduled cycle.
   manual?: boolean;
 }
+
+export interface UpdateInfo {
+  available: boolean;
+  current_version: string;
+  latest_version?: string;
+  url?: string;
+}

@@ -38,6 +38,10 @@ export function GetServerLogs() {
   return window['go']['main']['App']['GetServerLogs']();
 }
 
+export function GetUpdateInfo() {
+  return window['go']['main']['App']['GetUpdateInfo']();
+}
+
 export function ListAccounts() {
   return window['go']['main']['App']['ListAccounts']();
 }

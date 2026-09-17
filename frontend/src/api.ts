@@ -5,7 +5,7 @@
 // frontend/wailsjs/go bindings — both call the same
 // `window.go.main.App.*` object underneath.
 
-import type { AccountView, PendingAccountView } from "./types";
+import type { AccountView, PendingAccountView, UpdateInfo } from "./types";
 
 function app() {
   const w = window as unknown as { go: { main: { App: Record<string, (...args: unknown[]) => Promise<unknown>> } } };
@@ -49,6 +49,8 @@ export const api = {
 
   getLaunchAtLogin: () => app().GetLaunchAtLogin() as Promise<boolean>,
   setLaunchAtLogin: (enabled: boolean) => app().SetLaunchAtLogin(enabled) as Promise<void>,
+
+  getUpdateInfo: () => app().GetUpdateInfo() as Promise<UpdateInfo>,
 };
 
 /** Extracts a readable message from whatever Wails hands back for a Go `error`. */

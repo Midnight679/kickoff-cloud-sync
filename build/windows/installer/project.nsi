@@ -90,6 +90,11 @@ FunctionEnd
 Section
     !insertmacro wails.setShellContext
 
+    ; The app hides to the tray instead of quitting on close, so a
+    ; running instance would otherwise lock ${PRODUCT_EXECUTABLE} and
+    ; silently fail to be overwritten by an in-place upgrade.
+    ExecWait 'taskkill /F /IM "${PRODUCT_EXECUTABLE}"'
+
     !insertmacro wails.webview2runtime
 
     SetOutPath $INSTDIR
