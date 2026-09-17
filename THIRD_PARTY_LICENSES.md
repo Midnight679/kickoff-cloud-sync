@@ -2,8 +2,6 @@
 
 This project (MIT-licensed, see [LICENSE](LICENSE)) depends on the packages below. All of them use permissive licenses (MIT, Apache-2.0, BSD-2/3-Clause, ISC) — none are copyleft (GPL/LGPL/AGPL), so there's no license-compatibility issue with distributing this project publicly.
 
-This list covers only what's actually compiled or bundled into the shipped app. Build-only tooling — the Wails CLI, Vite, TypeScript, and the rest of `frontend`'s `devDependencies` — isn't included, since none of it ships with the app or is a dependency of it.
-
 Generated with [`google/go-licenses`](https://github.com/google/go-licenses) and [`license-checker`](https://www.npmjs.com/package/license-checker):
 
 ```bash
