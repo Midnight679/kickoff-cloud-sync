@@ -21,7 +21,7 @@ import (
 // latest release tag on startup (see checkForUpdate). Bump this
 // alongside wails.json's productVersion and the git tag for every
 // release — nothing reads this from git automatically.
-const appVersion = "0.1.9"
+const appVersion = "0.2.0"
 
 type App struct {
 	ctx    context.Context

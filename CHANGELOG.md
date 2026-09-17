@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.2.0
+- **The repository is now public.**
+- **Fixed a real bug**: replay downloads were failing with "expected an https URL" — Psyonix's own replay-serving endpoint uses plain HTTP, not HTTPS. The scheme check added during the earlier security review was too strict; it now accepts both, while still rejecting local/internal hosts (the actual protection that check exists for).
+- **Update notice**: the app checks GitHub's releases once at startup and shows a small notice with a link if a newer version is available. It never downloads or installs anything automatically — you still run the new installer yourself.
+- **Safer in-place upgrades**: the installer now closes any running instance before overwriting files (previously only the uninstaller did this), since the app hides to the tray rather than quitting and could otherwise block an upgrade from replacing the locked executable.
+
 ## 0.1.9
 - **Per-account replay visibility**: each account now has its own public/unlisted/private dropdown, applied to every future upload from that account. Defaults to public; doesn't affect replays already uploaded.
 - **Real Windows installer**, built and tested end-to-end via NSIS: installs per-user (no admin/UAC needed), creates working Start Menu and desktop shortcuts, and shows up correctly in Add/Remove Programs. Confirmed on a real install — including that toast notifications work correctly with Wails' stock shortcut, no extra customization needed.
