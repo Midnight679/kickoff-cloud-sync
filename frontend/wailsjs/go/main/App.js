@@ -30,6 +30,14 @@ export function GetAppVersion() {
   return window['go']['main']['App']['GetAppVersion']();
 }
 
+export function GetFailedUploadsMaxCount() {
+  return window['go']['main']['App']['GetFailedUploadsMaxCount']();
+}
+
+export function GetFailedUploadsRetryHour() {
+  return window['go']['main']['App']['GetFailedUploadsRetryHour']();
+}
+
 export function GetGroupPrivateSeriesEnabled() {
   return window['go']['main']['App']['GetGroupPrivateSeriesEnabled']();
 }
@@ -74,8 +82,20 @@ export function ResumeAccount(arg1) {
   return window['go']['main']['App']['ResumeAccount'](arg1);
 }
 
+export function RetryFailedUploadsNow() {
+  return window['go']['main']['App']['RetryFailedUploadsNow']();
+}
+
 export function SetAccountBallchasingToken(arg1, arg2) {
   return window['go']['main']['App']['SetAccountBallchasingToken'](arg1, arg2);
+}
+
+export function SetFailedUploadsMaxCount(arg1) {
+  return window['go']['main']['App']['SetFailedUploadsMaxCount'](arg1);
+}
+
+export function SetFailedUploadsRetryHour(arg1) {
+  return window['go']['main']['App']['SetFailedUploadsRetryHour'](arg1);
 }
 
 export function SetFriendlyName(arg1, arg2) {

@@ -99,6 +99,35 @@ type UploadResult struct {
 	Location string `json:"location"`
 }
 
+// UploadError is returned by UploadReplay for any response other than
+// 201 (created) or 409 (duplicate, treated as success by the caller).
+// StatusCode and Body carry ballchasing's actual response through
+// rather than just a formatted string, so a caller can classify the
+// failure (see Permanent) instead of just logging it.
+type UploadError struct {
+	StatusCode int
+	Body       string
+}
+
+func (e *UploadError) Error() string {
+	return fmt.Sprintf("ballchasing upload failed (%d): %s", e.StatusCode, e.Body)
+}
+
+// Permanent reports whether this is a rejection that retrying the same
+// file will never fix: any 4xx other than 401/403 (the account's
+// token is the problem, not the file — a new token can fix it, so
+// it's worth trying again) and 429 (ballchasing's own documented
+// "cool down and retry" signal, and in practice already retried
+// several times by doWithRetry before this is ever returned). A 5xx,
+// or a transport-level failure that never reaches this type at all,
+// is always temporary.
+func (e *UploadError) Permanent() bool {
+	return e.StatusCode >= 400 && e.StatusCode < 500 &&
+		e.StatusCode != http.StatusUnauthorized &&
+		e.StatusCode != http.StatusForbidden &&
+		e.StatusCode != http.StatusTooManyRequests
+}
+
 // UploadReplay POSTs a .replay file to ballchasing.gg.
 // visibility is one of: "public", "unlisted", "private".
 func UploadReplay(token, filePath, visibility string) (*UploadResult, error) {
@@ -140,7 +169,7 @@ func UploadReplay(token, filePath, visibility string) (*UploadResult, error) {
 	// 201 Created = new upload, 409 Conflict = duplicate (already uploaded)
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusConflict {
 		data, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ballchasing upload failed (%d): %s", resp.StatusCode, data)
+		return nil, &UploadError{StatusCode: resp.StatusCode, Body: string(data)}
 	}
 
 	var result UploadResult

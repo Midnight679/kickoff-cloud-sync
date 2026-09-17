@@ -94,14 +94,68 @@ type Config struct {
 	// default" would otherwise be indistinguishable from "the user
 	// turned it off."
 	DisableGroupPrivateSeries bool `json:"disable_group_private_series,omitempty"`
+
+	// LastFailedUploadsRetry is when the once-daily pass over
+	// permanently-failed uploads (see FailedUploadsDir and
+	// accounts.runFailedUploadsRetryLoop) last actually ran. nil until
+	// the first run. Global rather than per-account since one pass
+	// covers every account's failed replays together.
+	LastFailedUploadsRetry *time.Time `json:"last_failed_uploads_retry,omitempty"`
+
+	// FailedUploadsRetryHour is the local hour (0-23) the once-daily
+	// failed-uploads retry pass targets. nil means "use
+	// DefaultFailedUploadsRetryHour" — including every config saved
+	// before this setting existed. A pointer rather than a plain int
+	// defaulted via omitempty, since 0 (midnight) is itself a valid
+	// hour someone might deliberately choose, not just an unset
+	// sentinel — unlike FailedUploadsMaxCount below, which has no
+	// legitimate zero-or-negative value to protect.
+	FailedUploadsRetryHour *int `json:"failed_uploads_retry_hour,omitempty"`
+
+	// FailedUploadsMaxCount caps how many permanently-failed replays
+	// are kept (see accounts.evictOldestFailedUploadsIfFull). Zero or
+	// negative means "use DefaultFailedUploadsMaxCount" — including
+	// every config saved before this setting existed; the setter
+	// enforces a minimum of 1 so this never actually happens from a
+	// deliberate choice.
+	FailedUploadsMaxCount int `json:"failed_uploads_max_count,omitempty"`
+}
+
+// DefaultFailedUploadsRetryHour is used when FailedUploadsRetryHour is
+// unset — late enough that active gaming is rare, but still a time a
+// machine left on for a background uploader is realistically still
+// running.
+const DefaultFailedUploadsRetryHour = 4
+
+// RetryHour returns the configured failed-uploads retry hour (0-23,
+// local time), or DefaultFailedUploadsRetryHour if unset.
+func (c Config) RetryHour() int {
+	if c.FailedUploadsRetryHour == nil {
+		return DefaultFailedUploadsRetryHour
+	}
+	return *c.FailedUploadsRetryHour
+}
+
+// DefaultFailedUploadsMaxCount is used when FailedUploadsMaxCount is
+// zero or negative.
+const DefaultFailedUploadsMaxCount = 100
+
+// MaxFailedUploads returns the configured failed-uploads cap, or
+// DefaultFailedUploadsMaxCount if unset.
+func (c Config) MaxFailedUploads() int {
+	if c.FailedUploadsMaxCount <= 0 {
+		return DefaultFailedUploadsMaxCount
+	}
+	return c.FailedUploadsMaxCount
 }
 
 // Clone returns a deep copy of c: the Accounts slice, every account's
-// UploadedMatches map, and every LastPollTime are all duplicated, so
-// the copy shares no mutable memory with c. accounts.Manager.persist
-// depends on this: it snapshots the live config under its mutex and
-// then marshals the snapshot *outside* it, which is only safe if no
-// other goroutine can reach the snapshot's maps or slice elements.
+// UploadedMatches map, every LastPollTime, LastFailedUploadsRetry, and
+// FailedUploadsRetryHour are all duplicated, so the copy shares no
+// mutable memory with c. accounts.Manager.persist depends on this: it
+// snapshots the live config under its mutex and then marshals the
+// snapshot *outside* it, which is only safe if no other goroutine can
+// reach the snapshot's maps, slice elements, or pointed-to values.
 func (c Config) Clone() Config {
 	out := c
 	out.Accounts = make([]Account, len(c.Accounts))
@@ -118,6 +172,14 @@ func (c Config) Clone() Config {
 			acct.LastPollTime = &t
 		}
 		out.Accounts[i] = acct
+	}
+	if c.LastFailedUploadsRetry != nil {
+		t := *c.LastFailedUploadsRetry
+		out.LastFailedUploadsRetry = &t
+	}
+	if c.FailedUploadsRetryHour != nil {
+		h := *c.FailedUploadsRetryHour
+		out.FailedUploadsRetryHour = &h
 	}
 	return out
 }
@@ -185,6 +247,24 @@ func PendingUploadsDir() (string, error) {
 		return "", err
 	}
 	return pendingDir, nil
+}
+
+// FailedUploadsDir returns (creating if needed) the directory where a
+// replay is kept if ballchasing permanently rejected it (see
+// uploader.UploadError.Permanent) — retried at most once a day (see
+// accounts.runFailedUploadsRetryLoop), unlike PendingUploadsDir which
+// is retried every poll cycle, since a permanent rejection is far
+// less likely to resolve itself between one poll and the next.
+func FailedUploadsDir() (string, error) {
+	appDir, err := AppDataDir()
+	if err != nil {
+		return "", err
+	}
+	failedDir := filepath.Join(appDir, "failed-uploads")
+	if err := os.MkdirAll(failedDir, 0o700); err != nil {
+		return "", err
+	}
+	return failedDir, nil
 }
 
 func Load() (Config, error) {

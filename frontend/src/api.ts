@@ -5,7 +5,7 @@
 // frontend/wailsjs/go bindings — both call the same
 // `window.go.main.App.*` object underneath.
 
-import type { AccountView, PendingAccountView, UpdateInfo } from "./types";
+import type { AccountView, PendingAccountView, RetryFailedUploadsResult, UpdateInfo } from "./types";
 
 function app() {
   const w = window as unknown as { go: { main: { App: Record<string, (...args: unknown[]) => Promise<unknown>> } } };
@@ -48,6 +48,12 @@ export const api = {
   getGroupPrivateSeriesEnabled: () => app().GetGroupPrivateSeriesEnabled() as Promise<boolean>,
   setGroupPrivateSeriesEnabled: (enabled: boolean) =>
     app().SetGroupPrivateSeriesEnabled(enabled) as Promise<void>,
+
+  getFailedUploadsRetryHour: () => app().GetFailedUploadsRetryHour() as Promise<number>,
+  setFailedUploadsRetryHour: (hour: number) => app().SetFailedUploadsRetryHour(hour) as Promise<void>,
+  getFailedUploadsMaxCount: () => app().GetFailedUploadsMaxCount() as Promise<number>,
+  setFailedUploadsMaxCount: (n: number) => app().SetFailedUploadsMaxCount(n) as Promise<void>,
+  retryFailedUploadsNow: () => app().RetryFailedUploadsNow() as Promise<RetryFailedUploadsResult>,
 
   getServerLogs: () => app().GetServerLogs() as Promise<string[]>,
 

@@ -48,3 +48,8 @@ export interface UpdateInfo {
   latest_version?: string;
   url?: string;
 }
+
+export interface RetryFailedUploadsResult {
+  attempted: number;
+  succeeded: number;
+}
