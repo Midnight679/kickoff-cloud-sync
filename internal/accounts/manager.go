@@ -165,12 +165,19 @@ func (m *Manager) emit(name string, payload EventPayload) {
 // actual disk writes through saveMu, so two near-simultaneous
 // changes (e.g. a manual token edit landing mid-poll-cycle) can
 // never race each other out on disk.
+//
+// The snapshot has to be a deep copy (Clone), not `cfg := m.cfg`: a
+// plain struct copy still shares the Accounts backing array and every
+// UploadedMatches map with the live config, and config.Save marshals
+// it after m.mu is released. A poll recording an upload at that
+// moment is a concurrent map iteration + write, which the Go runtime
+// treats as fatal (the whole process dies, no recover possible).
 func (m *Manager) persist() error {
 	m.saveMu.Lock()
 	defer m.saveMu.Unlock()
 
 	m.mu.Lock()
-	cfg := m.cfg
+	cfg := m.cfg.Clone()
 	m.mu.Unlock()
 
 	return config.Save(cfg)
