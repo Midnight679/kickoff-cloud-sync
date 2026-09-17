@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.3
+- **Poll summary now always shows**, including "0 found, 0 uploaded", instead of disappearing when a poll finds nothing — gives positive confirmation a poll actually ran.
+- **Update checker improvements**: now rechecks every 24 hours instead of just once at startup. Added "Dismiss" and "Skip this version" to the update banner, plus a "Check for updates" button in Settings that always reports the real state.
+- Added an Acknowledgments section to the README crediting [Rockpload](https://github.com/LEX0RE/rockpload) as inspiration.
+
 ## 0.2.2
 - **Version marker**: a subtle version label now shows in the bottom-right corner of the window, so you can tell at a glance which build you're running.
 - **README**: Getting started now leads with the pre-built installer from Releases, with building from source as the alternative. Added a disclaimer about Chrome download warnings and Windows SmartScreen/antivirus false positives on the unsigned installer.
