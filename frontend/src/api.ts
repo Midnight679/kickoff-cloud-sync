@@ -51,6 +51,7 @@ export const api = {
   setLaunchAtLogin: (enabled: boolean) => app().SetLaunchAtLogin(enabled) as Promise<void>,
 
   getUpdateInfo: () => app().GetUpdateInfo() as Promise<UpdateInfo>,
+  getAppVersion: () => app().GetAppVersion() as Promise<string>,
 };
 
 /** Extracts a readable message from whatever Wails hands back for a Go `error`. */

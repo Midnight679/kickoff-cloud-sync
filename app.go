@@ -123,6 +123,13 @@ func (a *App) GetUpdateInfo() updatecheck.Info {
 	return a.updateInfo
 }
 
+// GetAppVersion returns this build's version — independent of
+// GetUpdateInfo, which depends on a network round-trip that may not
+// have completed (or may fail) yet.
+func (a *App) GetAppVersion() string {
+	return appVersion
+}
+
 // GetServerLogs returns everything currently buffered from the
 // standard log package (see internal/logbuf) — up to the last 1000
 // lines, oldest first. Combine with the "server-log" event for live

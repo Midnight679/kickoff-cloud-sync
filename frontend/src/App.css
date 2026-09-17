@@ -24,6 +24,16 @@
   align-items: center;
 }
 
+.version-marker {
+  position: fixed;
+  bottom: 6px;
+  right: 8px;
+  font-size: 0.85rem;
+  color: color-mix(in srgb, var(--bg-raised) 55%, var(--text-dim) 45%);
+  pointer-events: none;
+  user-select: none;
+}
+
 .update-banner {
   background: color-mix(in srgb, var(--accent) 15%, var(--bg-raised));
   border: 1px solid var(--accent);

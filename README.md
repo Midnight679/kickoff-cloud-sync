@@ -10,6 +10,8 @@ One practical consequence: Epic/Psyonix only allow one active session per accoun
 
 This project is also AI-assisted / "vibe coded" — built in collaboration with Claude, with a human reviewing, testing, and directing every change rather than writing all of it by hand. Disclosed here in the interest of transparency, not as a caveat on quality.
 
+The [installer releases](https://github.com/Midnight679/kickoff-cloud-sync/releases) aren't code-signed. Chrome may flag the download, and Windows SmartScreen or your antivirus may flag the installer itself — this is a well-documented false-positive pattern (`Trojan:*/Wacatac.*!ml`-style heuristic detections) that affects unsigned Go/NSIS-built applications broadly, not something specific to this app. If you hit it and want to proceed anyway: "Keep" on Chrome's download warning, then "More info" → "Run anyway" on SmartScreen's.
+
 ## Features
 
 - **Multi-account** — track as many Rocket League accounts as you want, each with its own ballchasing.com token
@@ -21,13 +23,20 @@ This project is also AI-assisted / "vibe coded" — built in collaboration with 
 
 ## Requirements
 
-- [Go](https://go.dev) 1.26+
-- [Node.js](https://nodejs.org) 18+
-- [Wails CLI](https://wails.io) v2
 - An Epic Games account (Steam-linked accounts work too — see [Adding an account](#adding-an-account))
 - A free [ballchasing.com](https://ballchasing.com) API token per account
 
+Building from source instead of using the installer additionally requires:
+
+- [Go](https://go.dev) 1.26+
+- [Node.js](https://nodejs.org) 18+
+- [Wails CLI](https://wails.io) v2
+
 ## Getting started
+
+Most people should just grab the latest installer from [Releases](https://github.com/Midnight679/kickoff-cloud-sync/releases) — download `kickoff-cloud-sync-vX.Y.Z-installer.exe`, run it, done. See the [Disclaimer](#disclaimer) above regarding SmartScreen/antivirus warnings on the unsigned installer.
+
+To build from source instead (for development or if you'd rather not run a pre-built binary):
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@latest

@@ -19,6 +19,7 @@ export default function App() {
   const [log, setLog] = useState<string[]>([]);
   const [view, setView] = useState<View>("accounts");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [version, setVersion] = useState("");
 
   // Persistent until the account is actually reauthenticated — not
   // tied to any single event, so it stays correct across restarts and
@@ -37,6 +38,10 @@ export default function App() {
 
   const refreshAccounts = useCallback(() => {
     api.listAccounts().then(setAccounts);
+  }, []);
+
+  useEffect(() => {
+    api.getAppVersion().then(setVersion);
   }, []);
 
   useEffect(() => {
@@ -153,6 +158,8 @@ export default function App() {
           onCancel={() => setModal(null)}
         />
       )}
+
+      {version && <div className="version-marker">v{version}</div>}
     </div>
   );
 }

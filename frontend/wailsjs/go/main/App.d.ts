@@ -13,6 +13,8 @@ export function CancelReauth(arg1:string):Promise<void>;
 
 export function ConfirmAddAccount(arg1:string,arg2:string,arg3:string):Promise<accounts.AccountView>;
 
+export function GetAppVersion():Promise<string>;
+
 export function GetHTTPTimeoutSecs():Promise<number>;
 
 export function GetLaunchAtLogin():Promise<boolean>;
