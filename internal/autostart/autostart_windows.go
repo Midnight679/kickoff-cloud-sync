@@ -4,8 +4,12 @@
 // when the user logs into Windows, via the standard per-user registry
 // Run key. No installer, admin rights, or Start Menu shortcut needed
 // — the registry is the single source of truth (queried live, not
-// cached in config.json), so it can't drift out of sync with reality
-// if the user removes the entry via Task Manager's Startup tab.
+// cached in config.json).
+//
+// IsEnabled also checks StartupApproved\Run: toggling an entry off via
+// Task Manager's Startup tab does NOT remove it from the Run key (a
+// check of the Run key alone would assume it did) — Task Manager
+// leaves Run untouched and records the disabled state elsewhere.
 package autostart
 
 import (
@@ -16,11 +20,14 @@ import (
 )
 
 const (
-	runKeyPath = `Software\Microsoft\Windows\CurrentVersion\Run`
-	valueName  = "KickoffCloudSync"
+	runKeyPath          = `Software\Microsoft\Windows\CurrentVersion\Run`
+	startupApprovedPath = `Software\Microsoft\Windows\CurrentVersion\Explorer\StartupApproved\Run`
+	valueName           = "KickoffCloudSync"
 )
 
-// IsEnabled reports whether the Run key entry currently exists.
+// IsEnabled reports whether this app will actually launch at Windows
+// login: the Run key entry must exist, and the user must not have
+// disabled it via Task Manager's Startup tab since.
 func IsEnabled() (bool, error) {
 	key, err := registry.OpenKey(registry.CURRENT_USER, runKeyPath, registry.QUERY_VALUE)
 	if err != nil {
@@ -31,7 +38,34 @@ func IsEnabled() (bool, error) {
 	if _, _, err := key.GetStringValue(valueName); err != nil {
 		return false, nil
 	}
-	return true, nil
+	return !disabledViaTaskManager(), nil
+}
+
+// disabledViaTaskManager reports whether the user turned this entry
+// off via Task Manager's Startup tab. Doing so writes an 11-byte
+// REG_BINARY value under StartupApproved\Run whose first byte is a
+// state flag: 02 or 06 means enabled, 03 or 07 means disabled
+// (undocumented by Microsoft, but well-established from
+// reverse-engineering StartupApproved's behavior). No value present
+// (or the key not existing at all) means "never touched in Task
+// Manager" — i.e. not disabled that way.
+func disabledViaTaskManager() bool {
+	key, err := registry.OpenKey(registry.CURRENT_USER, startupApprovedPath, registry.QUERY_VALUE)
+	if err != nil {
+		return false
+	}
+	defer key.Close()
+
+	data, _, err := key.GetBinaryValue(valueName)
+	if err != nil || len(data) == 0 {
+		return false
+	}
+	switch data[0] {
+	case 0x03, 0x07:
+		return true
+	default:
+		return false
+	}
 }
 
 // SetEnabled adds or removes the Run key entry. When enabling, it

@@ -5,6 +5,8 @@ import (
 	"fmt"
 
 	"github.com/dank/rlapi"
+
+	"github.com/Midnight679/kickoff-cloud-sync/internal/httpclient"
 )
 
 // LoginResult bundles the authenticated PsyNet RPC connection with
@@ -37,14 +39,16 @@ func GetAuthURL() string {
 // get a live match-history connection. This is step 2 of the
 // add-account / reauth flow.
 func CompleteEpicLogin(ctx context.Context, authCode string) (LoginResult, error) {
-	egs := rlapi.NewEGS()
+	return withTimeout(ctx, func() (LoginResult, error) {
+		egs := rlapi.NewEGS()
 
-	token, err := egs.AuthenticateWithCode(authCode)
-	if err != nil {
-		return LoginResult{}, fmt.Errorf("authenticating with code: %w", err)
-	}
+		token, err := egs.AuthenticateWithCode(authCode)
+		if err != nil {
+			return LoginResult{}, fmt.Errorf("authenticating with code: %w", err)
+		}
 
-	return finishLogin(egs, token)
+		return finishLogin(egs, token)
+	})
 }
 
 // EpicLoginWithRefreshToken re-authenticates using a previously
@@ -54,14 +58,56 @@ func CompleteEpicLogin(ctx context.Context, authCode string) (LoginResult, error
 // every use, so re-saving the same value here would break the next
 // silent login.
 func EpicLoginWithRefreshToken(ctx context.Context, refreshToken string) (LoginResult, error) {
-	egs := rlapi.NewEGS()
+	return withTimeout(ctx, func() (LoginResult, error) {
+		egs := rlapi.NewEGS()
 
-	token, err := egs.AuthenticateWithRefreshToken(refreshToken)
-	if err != nil {
-		return LoginResult{}, fmt.Errorf("authenticating with refresh token: %w", err)
+		token, err := egs.AuthenticateWithRefreshToken(refreshToken)
+		if err != nil {
+			return LoginResult{}, fmt.Errorf("authenticating with refresh token: %w", err)
+		}
+
+		return finishLogin(egs, token)
+	})
+}
+
+// withTimeout runs fn (the actual EGS/PsyNet login chain) in its own
+// goroutine, bounded by the user's configured network timeout layered
+// onto ctx. rlapi's login calls take no context of their own
+// (dank/rlapi#7 asks for this upstream) — without this, a hung
+// network call anywhere in that chain blocks forever, and on the
+// silent-reconnect path (ensureConnected) that stalls the whole shared
+// poll cycle behind it, with the "Network timeout" setting not
+// actually reaching this call at all.
+//
+// If the deadline wins the race, fn is left running in the
+// background; its result is only used to close a PsyNet connection it
+// might still go on to open, so a login that "answers late" doesn't
+// leak one nothing will ever use.
+func withTimeout(ctx context.Context, fn func() (LoginResult, error)) (LoginResult, error) {
+	ctx, cancel := context.WithTimeout(ctx, httpclient.Client().Timeout)
+	defer cancel()
+
+	type outcome struct {
+		result LoginResult
+		err    error
 	}
+	done := make(chan outcome, 1)
+	go func() {
+		result, err := fn()
+		done <- outcome{result, err}
+	}()
 
-	return finishLogin(egs, token)
+	select {
+	case o := <-done:
+		return o.result, o.err
+	case <-ctx.Done():
+		go func() {
+			if o := <-done; o.err == nil && o.result.RPC != nil {
+				_ = o.result.RPC.Close()
+			}
+		}()
+		return LoginResult{}, fmt.Errorf("logging in: %w", ctx.Err())
+	}
 }
 
 // finishLogin carries a successful EGS token (however it was
