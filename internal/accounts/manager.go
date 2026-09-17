@@ -156,6 +156,11 @@ type Manager struct {
 	// the new interval, instead of only taking effect after whatever
 	// wait was already in progress finishes — see waitForNextCycle.
 	intervalChanged chan struct{}
+
+	// failedUploadsRetryChanged is the same idea as intervalChanged, for
+	// runFailedUploadsRetryLoop — signalled by SetFailedUploadsRetryHour
+	// and RetryFailedUploadsNow.
+	failedUploadsRetryChanged chan struct{}
 }
 
 func NewManager(cfg config.Config, onEvent func(name string, payload EventPayload)) *Manager {
@@ -163,12 +168,13 @@ func NewManager(cfg config.Config, onEvent func(name string, payload EventPayloa
 		httpclient.SetTimeout(time.Duration(cfg.HTTPTimeoutSecs) * time.Second)
 	}
 	return &Manager{
-		cfg:             cfg,
-		runtimes:        make(map[string]*runtimeState),
-		pending:         make(map[string]*pendingAccount),
-		polling:         make(map[string]bool),
-		onEvent:         onEvent,
-		intervalChanged: make(chan struct{}, 1),
+		cfg:                       cfg,
+		runtimes:                  make(map[string]*runtimeState),
+		pending:                   make(map[string]*pendingAccount),
+		polling:                   make(map[string]bool),
+		onEvent:                   onEvent,
+		intervalChanged:           make(chan struct{}, 1),
+		failedUploadsRetryChanged: make(chan struct{}, 1),
 	}
 }
 
@@ -829,6 +835,8 @@ func (m *Manager) StartScheduledPolling(ctx context.Context) {
 	m.running = true
 	m.mu.Unlock()
 
+	go m.runFailedUploadsRetryLoop(ctx)
+
 	go func() {
 		defer func() {
 			m.mu.Lock()
@@ -1168,6 +1176,12 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 		// Still counts as "needs attention," just not by this path.
 		return true, false
 	}
+	if hasFailedUpload(accountID, matchID) {
+		// Ballchasing permanently rejected this one — it's on the
+		// once-a-day schedule now (see runFailedUploadsRetryLoop), not
+		// every regular poll cycle.
+		return true, false
+	}
 
 	m.emit(EventMatchDetected, EventPayload{AccountID: accountID, MatchID: matchID, Manual: manual})
 
@@ -1194,12 +1208,22 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 
 	result, err := uploader.UploadReplay(token, path, visibility)
 	if err != nil {
-		// Download succeeded but the upload itself failed (network
-		// hiccup, ballchasing hiccup, etc.) — rather than losing the
-		// bytes we already have, cache them for a retry on the next
-		// poll cycle instead of leaving them to rot in the OS temp
-		// dir (or get cleaned up by the OS before we ever try again).
-		if cacheErr := cachePendingReplay(path, accountID, matchID); cacheErr != nil {
+		// Download succeeded but the upload itself failed. A permanent
+		// rejection (ballchasing doesn't like the file itself, and a
+		// later poll cycle retrying it unchanged is never going to
+		// change that) goes straight to the once-a-day failed-uploads
+		// queue instead of the every-cycle pending-uploads one —
+		// otherwise a replay that can never succeed gets re-attempted
+		// forever. Anything else (network hiccup, ballchasing hiccup,
+		// a bad token) is cached the normal way so a later poll retries
+		// it, rather than losing the bytes we already have.
+		var uploadErr *uploader.UploadError
+		if errors.As(err, &uploadErr) && uploadErr.Permanent() {
+			if moveErr := m.moveToFailedUploads(path, accountID, matchID); moveErr != nil {
+				log.Printf("failed to move permanently-failed replay to failed-uploads (%s/%s): %v", accountID, matchID, moveErr)
+				_ = os.Remove(path)
+			}
+		} else if cacheErr := cachePendingReplay(path, accountID, matchID); cacheErr != nil {
 			log.Printf("failed to cache replay for retry (%s/%s): %v", accountID, matchID, cacheErr)
 			// Caching failed — don't leave the download orphaned in the
 			// OS temp dir. A no-op if cachePendingReplay's own fallback

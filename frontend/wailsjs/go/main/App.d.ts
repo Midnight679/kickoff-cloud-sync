@@ -17,6 +17,10 @@ export function ConfirmAddAccount(arg1:string,arg2:string,arg3:string):Promise<a
 
 export function GetAppVersion():Promise<string>;
 
+export function GetFailedUploadsMaxCount():Promise<number>;
+
+export function GetFailedUploadsRetryHour():Promise<number>;
+
 export function GetGroupPrivateSeriesEnabled():Promise<boolean>;
 
 export function GetHTTPTimeoutSecs():Promise<number>;
@@ -39,7 +43,13 @@ export function RemoveAccount(arg1:string):Promise<void>;
 
 export function ResumeAccount(arg1:string):Promise<void>;
 
+export function RetryFailedUploadsNow():Promise<accounts.RetryFailedUploadsResult>;
+
 export function SetAccountBallchasingToken(arg1:string,arg2:string):Promise<void>;
+
+export function SetFailedUploadsMaxCount(arg1:number):Promise<void>;
+
+export function SetFailedUploadsRetryHour(arg1:number):Promise<void>;
 
 export function SetFriendlyName(arg1:string,arg2:string):Promise<void>;
 

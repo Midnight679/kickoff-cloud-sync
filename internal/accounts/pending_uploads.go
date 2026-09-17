@@ -2,6 +2,7 @@ package accounts
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -167,44 +168,63 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool, onlyAcco
 		}
 		m.mu.Unlock()
 
-		succeeded := m.retryOnePendingUpload(dir, entry.Name(), accountID, matchID, idx, hasToken, alreadyUploaded, visibility, manual)
+		switch m.attemptCachedUpload(dir, entry.Name(), accountID, matchID, idx, hasToken, alreadyUploaded, visibility, manual) {
+		case cachedUploadSucceeded:
+			uploaded[accountID]++
+		case cachedUploadFailedPermanent:
+			// ballchasing rejected the file itself, not something a
+			// later poll cycle is likely to fix — move it out of the
+			// fast-retry queue and into the once-a-day one instead of
+			// leaving it here to be retried (and fail the same way)
+			// every single cycle forever.
+			if err := m.moveToFailedUploads(filepath.Join(dir, entry.Name()), accountID, matchID); err != nil {
+				log.Printf("could not move permanently-failed replay to failed-uploads (%s/%s): %v", accountID, matchID, err)
+			}
+		}
 
 		m.mu.Lock()
 		delete(m.polling, accountID)
 		m.mu.Unlock()
-
-		if succeeded {
-			uploaded[accountID]++
-		}
 	}
 	return uploaded
 }
 
-// retryOnePendingUpload is the per-file body of retryPendingUploads,
-// split out so the polling[accountID] guard around it (see the caller)
-// has a single, always-executed release point regardless of which of
-// the several early-return cases below is taken.
-func (m *Manager) retryOnePendingUpload(dir, fileName, accountID, matchID string, idx int, hasToken, alreadyUploaded bool, visibility string, manual bool) (succeeded bool) {
+// cachedUploadOutcome is what happened when attemptCachedUpload
+// retried one cached replay file.
+type cachedUploadOutcome int
+
+const (
+	cachedUploadSkipped cachedUploadOutcome = iota // no account, already uploaded, no token, or a transient failure — file left as-is (or already cleaned up)
+	cachedUploadSucceeded
+	cachedUploadFailedPermanent // ballchasing rejected the file itself; caller decides where it belongs now
+)
+
+// attemptCachedUpload is the per-file body shared by retryPendingUploads
+// and retryFailedUploads, split out so the polling[accountID] guard
+// around it (set by the caller before calling this, cleared after) has
+// a single always-executed release point regardless of which of the
+// several early-return cases below is taken.
+func (m *Manager) attemptCachedUpload(dir, fileName, accountID, matchID string, idx int, hasToken, alreadyUploaded bool, visibility string, manual bool) cachedUploadOutcome {
 	fullPath := filepath.Join(dir, fileName)
 
 	if idx == -1 {
 		// Account was removed since this was cached — nothing sensible
 		// to retry against; clean it up.
 		_ = os.Remove(fullPath)
-		return false
+		return cachedUploadSkipped
 	}
 	if alreadyUploaded {
 		// Got uploaded some other way (e.g. a manual poll) since this
 		// was cached — just clean up the leftover file.
 		_ = os.Remove(fullPath)
-		return false
+		return cachedUploadSkipped
 	}
 	if !hasToken {
-		return false // still no token configured — leave cached, try again next cycle
+		return cachedUploadSkipped // still no token configured — leave cached, try again next cycle
 	}
 	accountSecrets, err := secrets.Load(accountID)
 	if err != nil || accountSecrets.BallchasingToken == "" {
-		return false // couldn't read the token right now — try again next cycle
+		return cachedUploadSkipped // couldn't read the token right now — try again next cycle
 	}
 	token := accountSecrets.BallchasingToken
 
@@ -212,7 +232,11 @@ func (m *Manager) retryOnePendingUpload(dir, fileName, accountID, matchID string
 	if err != nil {
 		log.Printf("retry upload failed for %s: %v", fileName, err)
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
-		return false // leave the file in place for the next cycle
+		var uploadErr *uploader.UploadError
+		if errors.As(err, &uploadErr) && uploadErr.Permanent() {
+			return cachedUploadFailedPermanent
+		}
+		return cachedUploadSkipped // leave the file in place for the next cycle
 	}
 
 	m.mu.Lock()
@@ -229,7 +253,7 @@ func (m *Manager) retryOnePendingUpload(dir, fileName, accountID, matchID string
 	_ = os.Remove(fullPath)
 	m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
 	go m.finalizeReplay(accountID, token, result.ID, displayName)
-	return true
+	return cachedUploadSucceeded
 }
 
 func parsePendingFilename(name string) (accountID, matchID string, ok bool) {

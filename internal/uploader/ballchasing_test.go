@@ -6,6 +6,34 @@ import (
 	"testing"
 )
 
+// TestUploadError_Permanent covers the classification the
+// failed-uploads split (see internal/accounts) relies on: a genuine
+// "this file will never work" rejection versus something worth
+// retrying — a persistent 429 (already retried by doWithRetry before
+// ever reaching here) and 401/403 (a new token can fix it) must stay
+// on the retryable side despite being in the 4xx range.
+func TestUploadError_Permanent(t *testing.T) {
+	cases := []struct {
+		status int
+		want   bool
+	}{
+		{http.StatusBadRequest, true},          // 400 — ballchasing rejected the file itself
+		{http.StatusUnprocessableEntity, true}, // 422
+		{http.StatusUnauthorized, false},       // 401 — bad token, not a bad file
+		{http.StatusForbidden, false},          // 403
+		{http.StatusTooManyRequests, false},    // 429 — rate limited, not rejected
+		{http.StatusInternalServerError, false},
+		{http.StatusBadGateway, false},
+		{http.StatusServiceUnavailable, false},
+	}
+	for _, c := range cases {
+		err := &UploadError{StatusCode: c.status, Body: "test"}
+		if got := err.Permanent(); got != c.want {
+			t.Errorf("status %d: Permanent() = %v, want %v", c.status, got, c.want)
+		}
+	}
+}
+
 // TestCustomTeamPair_BothTeamsNamed verifies the happy path a scrim
 // series relies on: two custom team names come back as a pair,
 // regardless of which side (blue/orange) each one was on.

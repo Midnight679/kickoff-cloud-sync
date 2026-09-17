@@ -80,6 +80,21 @@ export namespace accounts {
 	        this.epic_display_name = source["epic_display_name"];
 	    }
 	}
+	
+	export class RetryFailedUploadsResult {
+	    attempted: number;
+	    succeeded: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new RetryFailedUploadsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.attempted = source["attempted"];
+	        this.succeeded = source["succeeded"];
+	    }
+	}
 
 }
 

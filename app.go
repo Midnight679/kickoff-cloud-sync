@@ -325,6 +325,32 @@ func (a *App) SetGroupPrivateSeriesEnabled(enabled bool) error {
 	return a.mgr.SetGroupPrivateSeriesEnabled(enabled)
 }
 
+// GetFailedUploadsRetryHour returns the local hour (0-23) the
+// once-a-day retry pass over permanently-failed uploads targets.
+func (a *App) GetFailedUploadsRetryHour() int {
+	return a.mgr.GetFailedUploadsRetryHour()
+}
+
+func (a *App) SetFailedUploadsRetryHour(hour int) error {
+	return a.mgr.SetFailedUploadsRetryHour(hour)
+}
+
+// GetFailedUploadsMaxCount returns how many permanently-failed
+// replays are kept before the oldest gets evicted to make room.
+func (a *App) GetFailedUploadsMaxCount() int {
+	return a.mgr.GetFailedUploadsMaxCount()
+}
+
+func (a *App) SetFailedUploadsMaxCount(n int) error {
+	return a.mgr.SetFailedUploadsMaxCount(n)
+}
+
+// RetryFailedUploadsNow runs the failed-uploads retry pass
+// immediately, for the "Retry now" button in Settings.
+func (a *App) RetryFailedUploadsNow() accounts.RetryFailedUploadsResult {
+	return a.mgr.RetryFailedUploadsNow(a.ctx)
+}
+
 // GetLaunchAtLogin reports whether the app is currently registered to
 // start automatically when Windows logs in — read live from the
 // registry (see internal/autostart), not a cached setting, so it

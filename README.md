@@ -19,7 +19,7 @@ The [installer releases](https://github.com/Midnight679/kickoff-cloud-sync/relea
 - **Automatic deduplication** — never uploads the same match twice
 - **Background polling** — checks for new matches on a configurable interval, with a manual "Poll Now" option per account
 - **Secure credential storage** — tokens live in your OS's native credential store, never in plaintext
-- **Resilient uploads** — a failed upload (network hiccup, ballchasing's daily quota, etc.) is cached and retried automatically; nothing is lost
+- **Resilient uploads** — a failed upload (network hiccup, ballchasing's daily quota, etc.) is cached and retried automatically; nothing is lost. A replay ballchasing rejects outright (a genuinely corrupt or unparseable file) is retried much less aggressively — once a day, at a configurable time, instead of every poll — since retrying something ballchasing has actively refused doesn't usually help
 - **Private match series grouping** — consecutive private matches against the same custom-named opponent (e.g. a scrim session) are automatically bundled into a ballchasing.com group; can be turned off in Settings
 - **Update notices** — checks once a day for a newer release and shows a dismissible banner with a link; nothing downloads or installs automatically. "Skip this version" silences it for good; "Check for updates" in Settings checks on demand
 
@@ -71,6 +71,8 @@ Reauthenticating an existing account (if its login expires) follows the same ope
 
 - **Poll interval** — how often, in minutes, the app checks for new matches
 - **Network timeout** — how long to wait on downloads/uploads before giving up
+- **Retry failed uploads at** — what time of day the once-daily retry for permanently-rejected replays runs (defaults to 4:00 AM); a "Retry failed uploads now" button triggers one immediately
+- **Failed uploads kept** — how many permanently-rejected replays are kept for retry before the oldest is dropped to make room (defaults to 100)
 
 ### Replay visibility
 
