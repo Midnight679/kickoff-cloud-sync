@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.5
+- **Permanently-failed uploads no longer retry forever**: a replay ballchasing rejects outright (a genuinely corrupt or unparseable file, not a network hiccup or a bad token) now moves into its own once-a-day retry queue instead of being retried on every poll cycle. The retry time (defaults to 4:00 AM) and how many failed replays are kept before the oldest is dropped (defaults to 100) are both configurable in Settings, alongside a "Retry failed uploads now" button. Prompted by [ABowlOfEleven](https://github.com/ABowlOfEleven)'s report in [issue #9](https://github.com/Midnight679/kickoff-cloud-sync/issues/9).
+- **Several smaller reliability and behavior fixes**, also from ABowlOfEleven's review pass ([issue #10](https://github.com/Midnight679/kickoff-cloud-sync/issues/10)):
+  - A shorter poll interval now takes effect immediately instead of waiting for the current wait to finish.
+  - "Poll Now" no longer retries every other account's pending uploads too.
+  - The poll summary now credits uploads completed by the retry pass, and no longer shows a misleadingly clean "0 found, 0 uploaded" when a poll actually failed to check history at all.
+  - Accounts no longer flash "Needs reauth" for several seconds on every launch.
+  - The "Launch at Windows startup" checkbox is now truthful after being turned off via Task Manager's Startup tab.
+  - Replay downloads are now capped in size and checked against a stronger host validation.
+  - The Epic/PsyNet login is now bounded by the network timeout setting instead of being able to hang indefinitely.
+  - Fixed a data race in the manual poll path, a couple of temp-file cleanup gaps, and the friendly name field saving on every blur even when unchanged.
+
 ## 0.2.4
 - **Private match series grouping**: consecutive private matches against the same custom-named opponent (e.g. a scrim session) are now automatically bundled into a ballchasing.com group. A one-off private match doesn't get a group of its own — only a second consecutive match against the same opponent confirms it's a series. Can be turned off in Settings.
 - **Reliability and correctness fixes** (contributed by [ABowlOfEleven](https://github.com/ABowlOfEleven) via a thorough code review pass):
