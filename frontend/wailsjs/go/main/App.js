@@ -30,6 +30,10 @@ export function GetAppVersion() {
   return window['go']['main']['App']['GetAppVersion']();
 }
 
+export function GetGroupPrivateSeriesEnabled() {
+  return window['go']['main']['App']['GetGroupPrivateSeriesEnabled']();
+}
+
 export function GetHTTPTimeoutSecs() {
   return window['go']['main']['App']['GetHTTPTimeoutSecs']();
 }
@@ -76,6 +80,10 @@ export function SetAccountBallchasingToken(arg1, arg2) {
 
 export function SetFriendlyName(arg1, arg2) {
   return window['go']['main']['App']['SetFriendlyName'](arg1, arg2);
+}
+
+export function SetGroupPrivateSeriesEnabled(arg1) {
+  return window['go']['main']['App']['SetGroupPrivateSeriesEnabled'](arg1);
 }
 
 export function SetHTTPTimeoutSecs(arg1) {

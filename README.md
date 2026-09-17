@@ -20,6 +20,7 @@ The [installer releases](https://github.com/Midnight679/kickoff-cloud-sync/relea
 - **Background polling** — checks for new matches on a configurable interval, with a manual "Poll Now" option per account
 - **Secure credential storage** — tokens live in your OS's native credential store, never in plaintext
 - **Resilient uploads** — a failed upload (network hiccup, ballchasing's daily quota, etc.) is cached and retried automatically; nothing is lost
+- **Private match series grouping** — consecutive private matches against the same custom-named opponent (e.g. a scrim session) are automatically bundled into a ballchasing.com group; can be turned off in Settings
 - **Update notices** — checks once a day for a newer release and shows a dismissible banner with a link; nothing downloads or installs automatically. "Skip this version" silences it for good; "Check for updates" in Settings checks on demand
 
 ## Requirements
@@ -74,6 +75,10 @@ Reauthenticating an existing account (if its login expires) follows the same ope
 ### Replay visibility
 
 Each account has its own **Replay visibility** dropdown (public/unlisted/private) in its account card, applied to every future upload from that account. Defaults to `public`. Changing it doesn't affect replays already uploaded.
+
+### Private match series grouping
+
+If you play a private lobby match where the host named both teams (e.g. "POLAR BEARS vs WHISKER GOBLINS"), and then play another private match against the same named opponent right after, both replays get grouped together on ballchasing.com — and any further matches against that same opponent, back to back, join the same group. A one-off private match against a new opponent doesn't get a group of its own; a group is only created once a second match confirms it's actually a series. This is on by default and can be turned off in Settings.
 
 ## How it works
 

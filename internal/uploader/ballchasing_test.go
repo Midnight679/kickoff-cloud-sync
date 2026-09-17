@@ -6,6 +6,93 @@ import (
 	"testing"
 )
 
+// TestCustomTeamPair_BothTeamsNamed verifies the happy path a scrim
+// series relies on: two custom team names come back as a pair,
+// regardless of which side (blue/orange) each one was on.
+func TestCustomTeamPair_BothTeamsNamed(t *testing.T) {
+	details := &ReplayDetails{
+		PlaylistName: "Private",
+		Blue:         ReplayTeam{Name: "WHISKER GOBLINS"},
+		Orange:       ReplayTeam{Name: "POLAR BEARS"},
+	}
+	pair, ok := CustomTeamPair(details)
+	if !ok {
+		t.Fatal("expected ok=true for two custom-named teams")
+	}
+	want := [2]string{"POLAR BEARS", "WHISKER GOBLINS"} // sorted
+	if pair != want {
+		t.Errorf("got pair %v, want %v", pair, want)
+	}
+}
+
+// TestCustomTeamPair_SortedRegardlessOfSide verifies that the same
+// two teams swapping blue/orange sides between games (common in a
+// real series) still produces an identical pair, so the grouping
+// streak isn't broken by a side swap.
+func TestCustomTeamPair_SortedRegardlessOfSide(t *testing.T) {
+	game1 := &ReplayDetails{
+		PlaylistName: "Private",
+		Blue:         ReplayTeam{Name: "POLAR BEARS"},
+		Orange:       ReplayTeam{Name: "WHISKER GOBLINS"},
+	}
+	game2 := &ReplayDetails{
+		PlaylistName: "Private",
+		Blue:         ReplayTeam{Name: "WHISKER GOBLINS"},
+		Orange:       ReplayTeam{Name: "POLAR BEARS"},
+	}
+	pair1, ok1 := CustomTeamPair(game1)
+	pair2, ok2 := CustomTeamPair(game2)
+	if !ok1 || !ok2 {
+		t.Fatal("expected ok=true for both games")
+	}
+	if pair1 != pair2 {
+		t.Errorf("side swap changed the pair: %v vs %v", pair1, pair2)
+	}
+}
+
+// TestCustomTeamPair_RejectsUnnamedOrNonPrivate covers the cases that
+// must NOT produce a groupable pair: a non-private match, and a
+// private match where the host left one or both sides on the
+// "Blue"/"Orange" default.
+func TestCustomTeamPair_RejectsUnnamedOrNonPrivate(t *testing.T) {
+	cases := []struct {
+		name    string
+		details *ReplayDetails
+	}{
+		{
+			name: "not private",
+			details: &ReplayDetails{
+				PlaylistName: "Ranked Doubles",
+				Blue:         ReplayTeam{Name: "POLAR BEARS"},
+				Orange:       ReplayTeam{Name: "WHISKER GOBLINS"},
+			},
+		},
+		{
+			name: "one side still default",
+			details: &ReplayDetails{
+				PlaylistName: "Private",
+				Blue:         ReplayTeam{Name: "Blue"},
+				Orange:       ReplayTeam{Name: "WHISKER GOBLINS"},
+			},
+		},
+		{
+			name: "both sides default",
+			details: &ReplayDetails{
+				PlaylistName: "Private",
+				Blue:         ReplayTeam{Name: "Blue"},
+				Orange:       ReplayTeam{Name: "Orange"},
+			},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, ok := CustomTeamPair(c.details); ok {
+				t.Errorf("expected ok=false for %s", c.name)
+			}
+		})
+	}
+}
+
 // TestDoWithRetry_RetriesOn429 verifies the actual retry/backoff path
 // against a real HTTP round-trip (via httptest), not just reasoning
 // about the code — a server that returns 429 twice, then 200, should
