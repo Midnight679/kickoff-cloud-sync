@@ -194,24 +194,3 @@ func parsePendingFilename(name string) (accountID, matchID string, ok bool) {
 	}
 	return parts[0], parts[1], true
 }
-
-// pendingUploadsSummary is a small debug/log helper — not currently
-// bound to the frontend, but handy if you want to surface "N replays
-// waiting to retry" somewhere later.
-func pendingUploadsSummary() (int, error) {
-	dir, err := config.PendingUploadsDir()
-	if err != nil {
-		return 0, err
-	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return 0, err
-	}
-	count := 0
-	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".replay") {
-			count++
-		}
-	}
-	return count, nil
-}

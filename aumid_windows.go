@@ -22,13 +22,10 @@ import (
 // same AUMID — go-toast doesn't do this for you. Must be called once,
 // before any UI is shown or any toast is pushed.
 //
-// Known limitation: even with this in place, Windows also expects a
-// Start Menu shortcut for the app whose own AppUserModelID property
-// matches this AUMID. That shortcut only exists for a properly
-// installed build (e.g. via the NSIS installer `wails build`
-// generates) — not for `wails dev`'s temporary executable. So this
-// fix can't be fully verified until testing against an installed
-// build.
+// Confirmed against a real installed build: the plain Start Menu
+// shortcut the NSIS installer creates (build/windows/installer)
+// is sufficient for toast notifications to display — no custom
+// AppUserModelID property on the shortcut itself is needed.
 func setProcessAppUserModelID(aumid string) {
 	ptr, err := syscall.UTF16PtrFromString(aumid)
 	if err != nil {

@@ -41,6 +41,10 @@ ballchasing.com rejects true duplicate uploads server-side — uploading a repla
 
 `UploadedMatches` has a hard size ceiling (`maxUploadedMatchesCacheBytes`, 100MB) as a safety net; if ever exceeded, the map resets and keeps only the most recent match, and a `cache-cleared` event fires.
 
+## Replay visibility
+
+Each `config.Account` has a `ReplayVisibility` field (`public`/`unlisted`/`private`). `Account.Visibility()` defaults it to `public` for any account with the field unset — including every account created before this setting existed, so no config migration is needed. It's read at upload time in both `handleMatch` and `retryPendingUploads` and passed straight through to `uploader.UploadReplay`. Changing it only affects future uploads; anything already uploaded keeps whatever visibility it was uploaded with.
+
 ## Failed-upload retry
 
 If a replay downloads successfully but the ballchasing upload fails (network hiccup, ballchasing's daily upload quota, etc.), it's moved into a persistent `pending-uploads` directory instead of being lost. `retryPendingUploads` retries everything there once per poll cycle (scheduled or manual), using the account's *current* token, so fixing a bad token retroactively picks up anything that failed because of it.
@@ -61,6 +65,17 @@ Emitted via `runtime.EventsEmit`, payload is `EventPayload` (`account_id`, optio
 | `no-matches` | Poll succeeded but history had zero entries |
 | `reconnected` | A dropped connection (e.g. `DuplicateLogin`) was silently re-established |
 | `cache-cleared` | The dedupe cache hit its size cap and was reset |
+| `needs-reauth` | Fired once per transition into `needs_reauth` (not on every retry) — drives both the OS toast notification and the tray error indicator below |
+
+## Tray error indicator
+
+`Manager.NeedsAttention()` reports whether any account currently has `StatusNeedsReauth` — the same condition the frontend uses to turn the settings gear red. `app.go`'s event-emission callback recomputes this after *every* event, not just reauth-related ones, so it also stays correct after a manual reauth from the UI or any other path that changes an account's status. `SetTrayErrorState` (`tray.go`) then swaps the tray icon between the normal and error-badged `.ico` — both embedded via `go:embed` — but only calls into the tray library when the state actually flips, since that involves writing a temp file.
+
+## Packaging and uninstall
+
+The Windows installer (`build/windows/installer/project.nsi`, built via `wails build --nsis --installscope user`) installs per-user — no admin/UAC needed — and creates Start Menu and desktop shortcuts using the icons in `build/windows/`.
+
+Uninstalling always kills any running instance first (the app hides to the tray rather than quitting on close, so it may still be running) and removes the "launch at startup" registry entry if one was ever set. It then asks whether to also remove local data; if so, it runs the app with a `--purge` flag before deleting anything else. `purge.go`'s `purgeAllData` deletes every configured account's OS-keyring credentials (via the existing `secrets.Delete`) and the app's entire `%APPDATA%\kickoff-cloud-sync` directory, located via `config.AppDataDir()`. That function is safety-checked — it must resolve under the OS's own per-user config directory, must be absolute, and its base name must literally be `kickoff-cloud-sync` — so it can never resolve to, and `purgeAllData` can never delete, anything outside the app's own data.
 
 ## Reliability details
 

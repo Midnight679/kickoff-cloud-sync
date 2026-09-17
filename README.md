@@ -31,7 +31,7 @@ This project is also AI-assisted / "vibe coded" — built in collaboration with 
 
 ```bash
 go install github.com/wailsapp/wails/v2/cmd/wails@latest
-git clone <this repo>
+git clone https://github.com/Midnight679/kickoff-cloud-sync.git
 cd kickoff-cloud-sync
 wails dev
 ```
