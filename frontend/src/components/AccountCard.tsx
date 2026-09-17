@@ -57,6 +57,7 @@ export function AccountCard({ account, onChanged, onReauth, onLog }: Props) {
   }
 
   async function saveFriendlyName() {
+    if (friendlyName === (account.friendly_name ?? "")) return;
     await run(async () => {
       await api.setFriendlyName(account.id, friendlyName);
     }, "saving friendly name");

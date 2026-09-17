@@ -108,14 +108,34 @@ func hasPendingReplay(accountID, matchID string) bool {
 // manual is threaded through to emitted events the same as elsewhere,
 // so the frontend log can tell a manual "Poll Now" retry pass apart
 // from a scheduled one.
-func (m *Manager) retryPendingUploads(ctx context.Context, manual bool) {
+//
+// onlyAccountID restricts the pass to that one account's files when
+// non-empty — used by PollAccountNow so a manual poll for one account
+// doesn't also retry (and log as "manual") every other account's
+// pending uploads. Every file this pass actually attempts is guarded
+// by m.polling for its account, the same map pollAccount uses: an
+// account already mid-poll elsewhere (another retry pass, or its own
+// pollAccount) is skipped this pass rather than raced, and picked up
+// again next time. This is what stops the scheduled cycle's full pass
+// and a concurrent manual pass for one account from both uploading the
+// same cached file at once.
+//
+// Returns how many uploads succeeded per account, so the caller can
+// fold that into pollAccount's found/uploaded counts — otherwise a
+// cycle that only succeeded via this retry pass would show "0 found,
+// 0 uploaded" in the account card despite having uploaded something,
+// since by the time handleMatch's own dedupe check runs it already
+// finds the match in UploadedMatches.
+func (m *Manager) retryPendingUploads(ctx context.Context, manual bool, onlyAccountID string) map[string]int {
+	uploaded := make(map[string]int)
+
 	dir, err := config.PendingUploadsDir()
 	if err != nil {
-		return
+		return uploaded
 	}
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return
+		return uploaded
 	}
 
 	for _, entry := range entries {
@@ -126,8 +146,16 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool) {
 		if !ok {
 			continue // not one of ours / malformed — leave it alone
 		}
+		if onlyAccountID != "" && accountID != onlyAccountID {
+			continue
+		}
 
 		m.mu.Lock()
+		if m.polling[accountID] {
+			m.mu.Unlock()
+			continue // this account is busy elsewhere right now; try again next pass
+		}
+		m.polling[accountID] = true
 		idx := m.indexOf(accountID)
 		var hasToken bool
 		var alreadyUploaded bool
@@ -139,51 +167,69 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool) {
 		}
 		m.mu.Unlock()
 
-		fullPath := filepath.Join(dir, entry.Name())
-
-		if idx == -1 {
-			// Account was removed since this was cached — nothing
-			// sensible to retry against; clean it up.
-			_ = os.Remove(fullPath)
-			continue
-		}
-		if alreadyUploaded {
-			// Got uploaded some other way (e.g. a manual poll) since
-			// this was cached — just clean up the leftover file.
-			_ = os.Remove(fullPath)
-			continue
-		}
-		if !hasToken {
-			continue // still no token configured — leave cached, try again next cycle
-		}
-		accountSecrets, err := secrets.Load(accountID)
-		if err != nil || accountSecrets.BallchasingToken == "" {
-			continue // couldn't read the token right now — try again next cycle
-		}
-		token := accountSecrets.BallchasingToken
-
-		result, err := uploader.UploadReplay(token, fullPath, visibility)
-		if err != nil {
-			log.Printf("retry upload failed for %s: %v", entry.Name(), err)
-			m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
-			continue // leave the file in place for the next cycle
-		}
+		succeeded := m.retryOnePendingUpload(dir, entry.Name(), accountID, matchID, idx, hasToken, alreadyUploaded, visibility, manual)
 
 		m.mu.Lock()
-		idx = m.indexOf(accountID)
-		var displayName string
-		if idx != -1 {
-			displayName = m.cfg.Accounts[idx].DisplayName
-			m.cfg.Accounts[idx].UploadedMatches[matchID] = result.ID
-			m.resetCacheIfOversized(idx, matchID, result.ID)
-		}
+		delete(m.polling, accountID)
 		m.mu.Unlock()
-		_ = m.persist()
 
-		_ = os.Remove(fullPath)
-		m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
-		go m.finalizeReplay(accountID, token, result.ID, displayName)
+		if succeeded {
+			uploaded[accountID]++
+		}
 	}
+	return uploaded
+}
+
+// retryOnePendingUpload is the per-file body of retryPendingUploads,
+// split out so the polling[accountID] guard around it (see the caller)
+// has a single, always-executed release point regardless of which of
+// the several early-return cases below is taken.
+func (m *Manager) retryOnePendingUpload(dir, fileName, accountID, matchID string, idx int, hasToken, alreadyUploaded bool, visibility string, manual bool) (succeeded bool) {
+	fullPath := filepath.Join(dir, fileName)
+
+	if idx == -1 {
+		// Account was removed since this was cached — nothing sensible
+		// to retry against; clean it up.
+		_ = os.Remove(fullPath)
+		return false
+	}
+	if alreadyUploaded {
+		// Got uploaded some other way (e.g. a manual poll) since this
+		// was cached — just clean up the leftover file.
+		_ = os.Remove(fullPath)
+		return false
+	}
+	if !hasToken {
+		return false // still no token configured — leave cached, try again next cycle
+	}
+	accountSecrets, err := secrets.Load(accountID)
+	if err != nil || accountSecrets.BallchasingToken == "" {
+		return false // couldn't read the token right now — try again next cycle
+	}
+	token := accountSecrets.BallchasingToken
+
+	result, err := uploader.UploadReplay(token, fullPath, visibility)
+	if err != nil {
+		log.Printf("retry upload failed for %s: %v", fileName, err)
+		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
+		return false // leave the file in place for the next cycle
+	}
+
+	m.mu.Lock()
+	idx = m.indexOf(accountID)
+	var displayName string
+	if idx != -1 {
+		displayName = m.cfg.Accounts[idx].DisplayName
+		m.cfg.Accounts[idx].UploadedMatches[matchID] = result.ID
+		m.resetCacheIfOversized(idx, matchID, result.ID)
+	}
+	m.mu.Unlock()
+	_ = m.persist()
+
+	_ = os.Remove(fullPath)
+	m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
+	go m.finalizeReplay(accountID, token, result.ID, displayName)
+	return true
 }
 
 func parsePendingFilename(name string) (accountID, matchID string, ok bool) {

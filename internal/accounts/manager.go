@@ -150,6 +150,12 @@ type Manager struct {
 	nextPoll time.Time
 	running  bool
 	onEvent  func(name string, payload EventPayload)
+
+	// intervalChanged is signalled (non-blocking) by SetPollIntervalSecs
+	// so the scheduled loop's wait can be interrupted and restarted with
+	// the new interval, instead of only taking effect after whatever
+	// wait was already in progress finishes — see waitForNextCycle.
+	intervalChanged chan struct{}
 }
 
 func NewManager(cfg config.Config, onEvent func(name string, payload EventPayload)) *Manager {
@@ -157,11 +163,12 @@ func NewManager(cfg config.Config, onEvent func(name string, payload EventPayloa
 		httpclient.SetTimeout(time.Duration(cfg.HTTPTimeoutSecs) * time.Second)
 	}
 	return &Manager{
-		cfg:      cfg,
-		runtimes: make(map[string]*runtimeState),
-		pending:  make(map[string]*pendingAccount),
-		polling:  make(map[string]bool),
-		onEvent:  onEvent,
+		cfg:             cfg,
+		runtimes:        make(map[string]*runtimeState),
+		pending:         make(map[string]*pendingAccount),
+		polling:         make(map[string]bool),
+		onEvent:         onEvent,
+		intervalChanged: make(chan struct{}, 1),
 	}
 }
 
@@ -220,7 +227,18 @@ func (m *Manager) persist() error {
 func (m *Manager) Init(ctx context.Context) {
 	m.mu.Lock()
 	accountsSnapshot := append([]config.Account{}, m.cfg.Accounts...)
+	// Every account starts "authenticating" before the login loop below
+	// even begins — logins happen one after another, so with a few
+	// accounts configured, ListAccounts/NeedsAttention would otherwise
+	// default a not-yet-attempted account to needs_reauth (see their nil
+	// rt fallback) and show every card and the tray gear as red for
+	// several seconds on every launch, before anything has actually
+	// failed.
+	for _, acct := range accountsSnapshot {
+		m.runtimes[acct.ID] = &runtimeState{status: StatusAuthenticating}
+	}
 	m.mu.Unlock()
+	m.emit(EventAccountsChanged, EventPayload{})
 
 	for _, acct := range accountsSnapshot {
 		if acct.Paused {
@@ -282,7 +300,11 @@ func (m *Manager) ListAccounts() []AccountView {
 	views := make([]AccountView, 0, len(m.cfg.Accounts))
 	for _, acct := range m.cfg.Accounts {
 		rt := m.runtimes[acct.ID]
-		status := StatusNeedsReauth
+		// No runtime entry yet only happens in the brief window before
+		// Init has run at all — Init immediately marks every account
+		// authenticating before it does anything slower, so this isn't
+		// "we tried and it failed," just "we haven't started yet."
+		status := StatusAuthenticating
 		if rt != nil {
 			status = rt.status
 		}
@@ -323,7 +345,7 @@ func (m *Manager) NeedsAttention() bool {
 	defer m.mu.Unlock()
 
 	for _, acct := range m.cfg.Accounts {
-		status := StatusNeedsReauth
+		status := StatusAuthenticating // see the matching comment in ListAccounts
 		if rt := m.runtimes[acct.ID]; rt != nil {
 			status = rt.status
 		}
@@ -650,6 +672,18 @@ func (m *Manager) SetPollIntervalSecs(secs int) error {
 	m.mu.Lock()
 	m.cfg.PollIntervalSecs = secs
 	m.mu.Unlock()
+
+	// Non-blocking: wakes the scheduled loop's current wait (see
+	// waitForNextCycle) so a shorter interval takes effect right away
+	// instead of only after whatever wait was already running finishes
+	// — without this, dropping a 120-minute interval to 10 does nothing
+	// for up to two hours. A full channel means a signal is already
+	// pending, which covers the same thing just as well.
+	select {
+	case m.intervalChanged <- struct{}{}:
+	default:
+	}
+
 	return m.persist()
 }
 
@@ -762,12 +796,26 @@ func (m *Manager) SetReplayVisibility(id, visibility string) error {
 func (m *Manager) PollAccountNow(ctx context.Context, id string) error {
 	m.mu.Lock()
 	rt, ok := m.runtimes[id]
+	var status AuthStatus
+	var rpc *rlapi.PsyNetRPC
+	if ok {
+		// Copied out while the lock is held — rt is the same pointer
+		// stored in m.runtimes, and ensureConnected/flagNeedsReauth
+		// mutate its fields from other goroutines under m.mu, so reading
+		// them after unlocking would be a data race.
+		status = rt.status
+		rpc = rt.rpc
+	}
 	m.mu.Unlock()
-	if !ok || rt.status != StatusAuthenticated {
+	if !ok || status != StatusAuthenticated {
 		return errors.New("account is not authenticated — reauth first")
 	}
-	m.retryPendingUploads(ctx, true)
-	if !m.pollAccount(ctx, id, rt.rpc, true) {
+	// Scoped to just this account, not every account's pending uploads
+	// — retryPendingUploads' own per-account guard also keeps this from
+	// racing a concurrent scheduled cycle's retry pass for the same
+	// account.
+	retried := m.retryPendingUploads(ctx, true, id)
+	if !m.pollAccount(ctx, id, rpc, true, retried[id]) {
 		return errors.New("a poll is already in progress for this account — try again shortly")
 	}
 	return nil
@@ -790,24 +838,57 @@ func (m *Manager) StartScheduledPolling(ctx context.Context) {
 
 		for {
 			m.runCycle(ctx)
-
-			m.mu.Lock()
-			interval := time.Duration(m.cfg.PollIntervalSecs) * time.Second
-			m.nextPoll = time.Now().Add(interval)
-			m.mu.Unlock()
-			m.emit(EventAccountsChanged, EventPayload{})
-
-			select {
-			case <-ctx.Done():
+			if !m.waitForNextCycle(ctx) {
 				return
-			case <-time.After(interval):
 			}
 		}
 	}()
 }
 
+// waitForNextCycle blocks until it's time to run the next scheduled
+// poll cycle, returning false if ctx is cancelled first. It (re)sets
+// m.nextPoll and emits accounts-changed both when the wait starts and
+// whenever intervalChanged fires mid-wait — SetPollIntervalSecs signals
+// that channel, so a shorter interval set while already waiting on a
+// longer one restarts the wait immediately with the new duration,
+// instead of only taking effect after the original wait would have
+// finished anyway.
+func (m *Manager) waitForNextCycle(ctx context.Context) bool {
+	m.mu.Lock()
+	interval := time.Duration(m.cfg.PollIntervalSecs) * time.Second
+	m.nextPoll = time.Now().Add(interval)
+	m.mu.Unlock()
+	m.emit(EventAccountsChanged, EventPayload{})
+
+	timer := time.NewTimer(interval)
+	defer timer.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return false
+		case <-timer.C:
+			return true
+		case <-m.intervalChanged:
+			m.mu.Lock()
+			interval = time.Duration(m.cfg.PollIntervalSecs) * time.Second
+			m.nextPoll = time.Now().Add(interval)
+			m.mu.Unlock()
+			m.emit(EventAccountsChanged, EventPayload{})
+
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(interval)
+		}
+	}
+}
+
 func (m *Manager) runCycle(ctx context.Context) {
-	m.retryPendingUploads(ctx, false)
+	retried := m.retryPendingUploads(ctx, false, "")
 
 	m.mu.Lock()
 	type target struct {
@@ -826,7 +907,7 @@ func (m *Manager) runCycle(ctx context.Context) {
 	m.mu.Unlock()
 
 	for _, t := range targets {
-		m.pollAccount(ctx, t.id, t.rpc, false)
+		m.pollAccount(ctx, t.id, t.rpc, false, retried[t.id])
 	}
 }
 
@@ -969,7 +1050,12 @@ func (m *Manager) emitNeedsReauthNotice(id string) {
 // up on a later tick anyway. manual is true for an explicit "Poll
 // Now" click, false for the shared scheduled cycle — threaded through
 // to every emitted event so the frontend log can tell them apart.
-func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetRPC, manual bool) bool {
+// retriedUploaded is how many pending uploads retryPendingUploads
+// already completed for this account earlier in the same cycle (see
+// its caller) — folded into this poll's own found/uploaded counts so
+// a cycle that only succeeded via the retry pass doesn't show "0
+// found, 0 uploaded" despite having uploaded something.
+func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetRPC, manual bool, retriedUploaded int) bool {
 	m.mu.Lock()
 	if m.polling[id] {
 		m.mu.Unlock()
@@ -1006,8 +1092,10 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 	// already-uploaded matches would poll successfully every cycle
 	// and emit nothing at all, which looks identical to a silent
 	// failure.
-	newCount := 0
-	uploadedCount := 0
+	// Seeded with the retry pass's own count rather than starting at
+	// zero — see the retriedUploaded doc comment above.
+	newCount := retriedUploaded
+	uploadedCount := retriedUploaded
 	matchCount, err := matches.PollOnce(ctx, rpc, func(matchID, replayURL string) {
 		found, uploaded := m.handleMatch(ctx, id, matchID, replayURL, manual)
 		if found {
@@ -1025,8 +1113,13 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 		m.cfg.Accounts[idx].LastPollTime = &now
 	}
 	// Overwrites whatever the previous poll left here — this is a
-	// snapshot of the cycle that just ran, not a running total.
-	if rt := m.runtimes[id]; rt != nil {
+	// snapshot of the cycle that just ran, not a running total. Only
+	// when the history fetch actually succeeded, though: on failure,
+	// leaving the previous (stale) summary in place is more honest than
+	// replacing it with a clean-looking "0 found, 0 uploaded" that's
+	// indistinguishable from a quiet successful poll — the auth-error
+	// event below is what actually reports the failure.
+	if rt := m.runtimes[id]; rt != nil && err == nil {
 		rt.lastPoll = &PollResult{Found: newCount, Uploaded: uploadedCount, Failed: newCount - uploadedCount}
 	}
 	m.mu.Unlock()
@@ -1108,6 +1201,10 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 		// dir (or get cleaned up by the OS before we ever try again).
 		if cacheErr := cachePendingReplay(path, accountID, matchID); cacheErr != nil {
 			log.Printf("failed to cache replay for retry (%s/%s): %v", accountID, matchID, cacheErr)
+			// Caching failed — don't leave the download orphaned in the
+			// OS temp dir. A no-op if cachePendingReplay's own fallback
+			// already moved/removed it before failing on some later step.
+			_ = os.Remove(path)
 		}
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
 		return true, false
