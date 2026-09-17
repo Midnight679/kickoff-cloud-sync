@@ -2,6 +2,7 @@ package uploader
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/time/rate"
+
 	"github.com/Midnight679/kickoff-cloud-sync/internal/httpclient"
 )
 
@@ -19,17 +22,61 @@ const uploadURL = "https://ballchasing.com/api/v2/upload"
 const pingURL = "https://ballchasing.com/api/"
 const replayURLBase = "https://ballchasing.com/api/replays/"
 
+// ballchasingLimiter throttles every outbound call to ballchasing.com
+// to comfortably stay under their documented rate limit for accounts
+// without a Patreon tier — 2 calls/second on the endpoints this app
+// actually uses (confirmed against https://ballchasing.com/doc/api).
+// Set below that so ordinary timing jitter never tips it over, and
+// burst 1 so calls are paced rather than allowed to fire in a batch.
+var ballchasingLimiter = rate.NewLimiter(rate.Limit(1.5), 1)
+
+// doWithRetry runs one HTTP round-trip through the shared rate
+// limiter, retrying with backoff if ballchasing responds 429 — their
+// documented signal to "cool down for a bit before retrying." newReq
+// builds a fresh *http.Request per attempt (rather than taking a
+// pre-built one) since a request with a body can only be sent once.
+func doWithRetry(newReq func() (*http.Request, error)) (*http.Response, error) {
+	const maxAttempts = 4
+	backoff := 2 * time.Second
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+		if attempt > 0 {
+			time.Sleep(backoff)
+			backoff *= 2
+		}
+
+		if err := ballchasingLimiter.Wait(context.Background()); err != nil {
+			return nil, err
+		}
+
+		req, err := newReq()
+		if err != nil {
+			return nil, err
+		}
+		resp, err := httpclient.Client().Do(req)
+		if err != nil {
+			return nil, err
+		}
+		if resp.StatusCode != http.StatusTooManyRequests {
+			return resp, nil
+		}
+		resp.Body.Close()
+	}
+	return nil, fmt.Errorf("ballchasing rate limit (429) persisted after %d attempts", maxAttempts)
+}
+
 // ValidateToken pings ballchasing.com with the given token to
 // confirm it's actually accepted before an account gets saved with
 // it. This is what backs the "confirm" step in the add-account flow.
 func ValidateToken(token string) error {
-	req, err := http.NewRequest(http.MethodGet, pingURL, nil)
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", token)
-
-	resp, err := httpclient.Client().Do(req)
+	resp, err := doWithRetry(func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodGet, pingURL, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", token)
+		return req, nil
+	})
 	if err != nil {
 		return fmt.Errorf("contacting ballchasing: %w", err)
 	}
@@ -53,34 +100,36 @@ type UploadResult struct {
 // UploadReplay POSTs a .replay file to ballchasing.gg.
 // visibility is one of: "public", "unlisted", "private".
 func UploadReplay(token, filePath, visibility string) (*UploadResult, error) {
-	f, err := os.Open(filePath)
-	if err != nil {
-		return nil, fmt.Errorf("opening replay file: %w", err)
-	}
-	defer f.Close()
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("file", filepath.Base(filePath))
-	if err != nil {
-		return nil, err
-	}
-	if _, err := io.Copy(part, f); err != nil {
-		return nil, err
-	}
-	if err := writer.Close(); err != nil {
-		return nil, err
-	}
-
 	url := fmt.Sprintf("%s?visibility=%s", uploadURL, visibility)
-	req, err := http.NewRequest(http.MethodPost, url, body)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", token)
-	req.Header.Set("Content-Type", writer.FormDataContentType())
 
-	resp, err := httpclient.Client().Do(req)
+	resp, err := doWithRetry(func() (*http.Request, error) {
+		f, err := os.Open(filePath)
+		if err != nil {
+			return nil, fmt.Errorf("opening replay file: %w", err)
+		}
+		defer f.Close()
+
+		body := &bytes.Buffer{}
+		writer := multipart.NewWriter(body)
+		part, err := writer.CreateFormFile("file", filepath.Base(filePath))
+		if err != nil {
+			return nil, err
+		}
+		if _, err := io.Copy(part, f); err != nil {
+			return nil, err
+		}
+		if err := writer.Close(); err != nil {
+			return nil, err
+		}
+
+		req, err := http.NewRequest(http.MethodPost, url, body)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", token)
+		req.Header.Set("Content-Type", writer.FormDataContentType())
+		return req, nil
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -127,13 +176,14 @@ type ReplayDetails struct {
 
 // GetReplay fetches ballchasing's parsed details for a replay.
 func GetReplay(token, replayID string) (*ReplayDetails, error) {
-	req, err := http.NewRequest(http.MethodGet, replayURLBase+replayID, nil)
-	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", token)
-
-	resp, err := httpclient.Client().Do(req)
+	resp, err := doWithRetry(func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodGet, replayURLBase+replayID, nil)
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", token)
+		return req, nil
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -181,14 +231,15 @@ func SetReplayTitle(token, replayID, title string) error {
 		return err
 	}
 
-	req, err := http.NewRequest(http.MethodPatch, replayURLBase+replayID, bytes.NewReader(body))
-	if err != nil {
-		return err
-	}
-	req.Header.Set("Authorization", token)
-	req.Header.Set("Content-Type", "application/json")
-
-	resp, err := httpclient.Client().Do(req)
+	resp, err := doWithRetry(func() (*http.Request, error) {
+		req, err := http.NewRequest(http.MethodPatch, replayURLBase+replayID, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Authorization", token)
+		req.Header.Set("Content-Type", "application/json")
+		return req, nil
+	})
 	if err != nil {
 		return err
 	}

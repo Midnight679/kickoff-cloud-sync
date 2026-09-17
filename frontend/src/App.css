@@ -190,6 +190,19 @@
   justify-content: space-between;
 }
 
+.account-card__poll-result {
+  justify-content: flex-start;
+  gap: 0.75rem;
+}
+
+.account-card__poll-result .stat--ok {
+  color: var(--ok);
+}
+
+.account-card__poll-result .stat--warn {
+  color: var(--warn);
+}
+
 .account-card__actions {
   margin-top: auto;
 }

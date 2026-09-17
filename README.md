@@ -21,7 +21,7 @@ This project is also AI-assisted / "vibe coded" — built in collaboration with 
 
 ## Requirements
 
-- [Go](https://go.dev) 1.25+
+- [Go](https://go.dev) 1.26+
 - [Node.js](https://nodejs.org) 18+
 - [Wails CLI](https://wails.io) v2
 - An Epic Games account (Steam-linked accounts work too — see [Adding an account](#adding-an-account))

@@ -115,6 +115,16 @@ export function AccountCard({ account, onChanged, onReauth, onLog }: Props) {
         <span>Next poll: {account.paused ? "paused" : fmtTime(account.next_poll_time)}</span>
       </div>
 
+      {account.last_poll && account.last_poll.found > 0 && (
+        <div className="account-card__row account-card__meta account-card__poll-result">
+          <span>{account.last_poll.found} found</span>
+          <span className={account.last_poll.failed === 0 ? "stat--ok" : undefined}>
+            ↑ {account.last_poll.uploaded} uploaded
+          </span>
+          {account.last_poll.failed > 0 && <span className="stat--warn">{account.last_poll.failed} failed</span>}
+        </div>
+      )}
+
       <div className="account-card__row">
         <input
           className="input"

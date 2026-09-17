@@ -68,20 +68,37 @@ type EventPayload struct {
 type runtimeState struct {
 	rpc    *rlapi.PsyNetRPC
 	status AuthStatus
+
+	// lastPoll is only ever this account's most recently completed
+	// poll cycle — overwritten in place every time, never merged or
+	// accumulated across cycles. It's deliberately not persisted:
+	// this is "what just happened," not history.
+	lastPoll *PollResult
+}
+
+// PollResult summarizes what a single poll cycle did for one
+// account. Found is how many matches needed attention this cycle
+// (freshly detected, or a queued upload retried); Uploaded is how
+// many of those ended in a successful upload; Failed is the rest.
+type PollResult struct {
+	Found    int `json:"found"`
+	Uploaded int `json:"uploaded"`
+	Failed   int `json:"failed"`
 }
 
 // AccountView is the read-only projection sent to the frontend —
 // deliberately excludes tokens.
 type AccountView struct {
-	ID               string     `json:"id"`
-	DisplayName      string     `json:"display_name"`
-	FriendlyName     string     `json:"friendly_name,omitempty"`
-	AuthStatus       AuthStatus `json:"auth_status"`
-	Paused           bool       `json:"paused"`
-	LastPollTime     *time.Time `json:"last_poll_time,omitempty"`
-	NextPollTime     *time.Time `json:"next_poll_time,omitempty"` // nil if paused or cycle not running
-	HasToken         bool       `json:"has_token"`                // whether a ballchasing token is set, without exposing it
-	ReplayVisibility string     `json:"replay_visibility"`        // "public", "unlisted", or "private"
+	ID               string      `json:"id"`
+	DisplayName      string      `json:"display_name"`
+	FriendlyName     string      `json:"friendly_name,omitempty"`
+	AuthStatus       AuthStatus  `json:"auth_status"`
+	Paused           bool        `json:"paused"`
+	LastPollTime     *time.Time  `json:"last_poll_time,omitempty"`
+	NextPollTime     *time.Time  `json:"next_poll_time,omitempty"` // nil if paused or cycle not running
+	HasToken         bool        `json:"has_token"`                // whether a ballchasing token is set, without exposing it
+	ReplayVisibility string      `json:"replay_visibility"`        // "public", "unlisted", or "private"
+	LastPoll         *PollResult `json:"last_poll,omitempty"`      // nil until this account's first poll completes this run
 }
 
 // pendingAccount holds an in-progress add-account flow: logged in,
@@ -236,6 +253,11 @@ func (m *Manager) ListAccounts() []AccountView {
 			nextPoll = &np
 		}
 
+		var lastPoll *PollResult
+		if rt != nil {
+			lastPoll = rt.lastPoll
+		}
+
 		views = append(views, AccountView{
 			ID:               acct.ID,
 			DisplayName:      acct.DisplayName,
@@ -246,6 +268,7 @@ func (m *Manager) ListAccounts() []AccountView {
 			NextPollTime:     nextPoll,
 			HasToken:         acct.HasBallchasingToken,
 			ReplayVisibility: acct.Visibility(),
+			LastPoll:         lastPoll,
 		})
 	}
 	return views
@@ -812,9 +835,14 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 	// and emit nothing at all, which looks identical to a silent
 	// failure.
 	newCount := 0
+	uploadedCount := 0
 	matchCount, err := matches.PollOnce(ctx, rpc, func(matchID, replayURL string) {
-		if m.handleMatch(ctx, id, matchID, replayURL, manual) {
+		found, uploaded := m.handleMatch(ctx, id, matchID, replayURL, manual)
+		if found {
 			newCount++
+		}
+		if uploaded {
+			uploadedCount++
 		}
 	})
 
@@ -823,6 +851,11 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 	if idx != -1 {
 		now := time.Now()
 		m.cfg.Accounts[idx].LastPollTime = &now
+	}
+	// Overwrites whatever the previous poll left here — this is a
+	// snapshot of the cycle that just ran, not a running total.
+	if rt := m.runtimes[id]; rt != nil {
+		rt.lastPoll = &PollResult{Found: newCount, Uploaded: uploadedCount, Failed: newCount - uploadedCount}
 	}
 	m.mu.Unlock()
 	_ = m.persist()
@@ -840,16 +873,18 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 	return true
 }
 
-// handleMatch returns true if this match needed any attention this
-// poll (freshly detected, or still waiting on a pending-upload
-// retry) — false if it was already fully accounted for. pollAccount
-// uses this to tell "nothing new" apart from "poll didn't run."
-func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL string, manual bool) bool {
+// handleMatch reports two things about one match from this poll:
+// found is true if it needed any attention (freshly detected, or
+// still waiting on a pending-upload retry) — false if it was already
+// fully accounted for. uploaded is true only if this call completed
+// a successful upload. pollAccount aggregates both across the whole
+// poll into a PollResult.
+func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL string, manual bool) (found, uploaded bool) {
 	m.mu.Lock()
 	idx := m.indexOf(accountID)
 	if idx == -1 {
 		m.mu.Unlock()
-		return false
+		return false, false
 	}
 	_, alreadyUploaded := m.cfg.Accounts[idx].UploadedMatches[matchID]
 	hasToken := m.cfg.Accounts[idx].HasBallchasingToken
@@ -857,7 +892,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 	m.mu.Unlock()
 
 	if alreadyUploaded {
-		return false
+		return false, false
 	}
 
 	if hasPendingReplay(accountID, matchID) {
@@ -866,30 +901,30 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 		// — retryPendingUploads already retries it once per cycle, so
 		// skip re-downloading and re-attempting the upload here too.
 		// Still counts as "needs attention," just not by this path.
-		return true
+		return true, false
 	}
 
 	m.emit(EventMatchDetected, EventPayload{AccountID: accountID, MatchID: matchID, Manual: manual})
 
 	if replayURL == "" {
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "no replay URL in match history", Manual: manual})
-		return true
+		return true, false
 	}
 	if !hasToken {
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "no ballchasing token set for this account", Manual: manual})
-		return true
+		return true, false
 	}
 	accountSecrets, err := secrets.Load(accountID)
 	if err != nil || accountSecrets.BallchasingToken == "" {
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: "could not read ballchasing token from secure storage", Manual: manual})
-		return true
+		return true, false
 	}
 	token := accountSecrets.BallchasingToken
 
 	path, err := matches.DownloadReplay(replayURL)
 	if err != nil {
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
-		return true
+		return true, false
 	}
 
 	result, err := uploader.UploadReplay(token, path, visibility)
@@ -903,7 +938,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 			log.Printf("failed to cache replay for retry (%s/%s): %v", accountID, matchID, cacheErr)
 		}
 		m.emit(EventUploadError, EventPayload{AccountID: accountID, MatchID: matchID, Message: err.Error(), Manual: manual})
-		return true
+		return true, false
 	}
 	// Uploaded successfully — the temp file has served its purpose.
 	_ = os.Remove(path)
@@ -929,7 +964,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 	_ = m.persist()
 	m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
 	go finalizeReplayTitle(token, result.ID, displayName)
-	return true
+	return true, true
 }
 
 // finalizeReplayTitle best-effort renames a freshly uploaded replay

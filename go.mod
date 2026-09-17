@@ -1,6 +1,6 @@
 module github.com/Midnight679/kickoff-cloud-sync
 
-go 1.25.0
+go 1.26.0
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
@@ -9,6 +9,7 @@ require (
 	github.com/wailsapp/wails/v2 v2.16.0
 	github.com/zalando/go-keyring v0.2.6
 	golang.org/x/sys v0.46.0
+	golang.org/x/time v0.16.0
 )
 
 require (

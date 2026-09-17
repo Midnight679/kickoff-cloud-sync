@@ -1,5 +1,21 @@
 export namespace accounts {
 	
+	export class PollResult {
+	    found: number;
+	    uploaded: number;
+	    failed: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new PollResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.found = source["found"];
+	        this.uploaded = source["uploaded"];
+	        this.failed = source["failed"];
+	    }
+	}
 	export class AccountView {
 	    id: string;
 	    display_name: string;
@@ -12,6 +28,7 @@ export namespace accounts {
 	    next_poll_time?: any;
 	    has_token: boolean;
 	    replay_visibility: string;
+	    last_poll?: PollResult;
 	
 	    static createFrom(source: any = {}) {
 	        return new AccountView(source);
@@ -28,6 +45,7 @@ export namespace accounts {
 	        this.next_poll_time = this.convertValues(source["next_poll_time"], null);
 	        this.has_token = source["has_token"];
 	        this.replay_visibility = source["replay_visibility"];
+	        this.last_poll = this.convertValues(source["last_poll"], PollResult);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -7,6 +7,12 @@ export type AuthStatus = "authenticated" | "needs_reauth" | "authenticating";
 
 export type ReplayVisibility = "public" | "unlisted" | "private";
 
+export interface PollResult {
+  found: number;
+  uploaded: number;
+  failed: number;
+}
+
 export interface AccountView {
   id: string;
   display_name: string;
@@ -17,6 +23,9 @@ export interface AccountView {
   next_poll_time?: string;
   has_token: boolean;
   replay_visibility: ReplayVisibility;
+  // Only this account's most recently completed poll — not history,
+  // overwritten every cycle. Absent until the first poll this run.
+  last_poll?: PollResult;
 }
 
 export interface PendingAccountView {

@@ -34,6 +34,7 @@ cd frontend && npx license-checker --summary
 | github.com/rivo/uniseg | MIT |
 | github.com/wailsapp/go-webview2 | MIT (combridge) / ISC (webviewloader) |
 | golang.org/x/sys | BSD-3-Clause |
+| golang.org/x/time | BSD-3-Clause |
 
 *Reflects the dependency set actually linked into the Windows build, not the full `go.mod` list — some indirect entries are pulled in only for other platforms and never compiled here.*
 

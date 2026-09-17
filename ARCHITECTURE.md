@@ -51,6 +51,16 @@ If a replay downloads successfully but the ballchasing upload fails (network hic
 
 While a replay is waiting in this cache, the normal per-match handler skips it entirely (rather than re-downloading and re-attempting the upload on every poll on top of the retry pass already doing so).
 
+## Last-poll summary
+
+`runtimeState.lastPoll` (a `*PollResult` — found/uploaded/failed counts) is scratch state for exactly one poll cycle, not history: `pollAccount` overwrites it in place every time an account is polled, whether or not anything happened, and it's never persisted. `ListAccounts` surfaces it as `AccountView.LastPoll`; the frontend only renders it when `found > 0`, color-coding "uploaded" green when nothing failed and adding a "failed" line when something did. `handleMatch`'s two-part return (`found`, `uploaded`) is what `pollAccount` aggregates into these counts — a match counts as `found` whenever it needed any attention this cycle (freshly detected, pending-retry still outstanding, or errored), and `uploaded` only when it ended in an actual successful upload; `failed` is just `found - uploaded`.
+
+## ballchasing rate limiting
+
+Confirmed against ballchasing's own API docs (https://ballchasing.com/doc/api): accounts without a Patreon tier are limited to 2 calls/second on `GET /replays/{id}` and `PATCH /replays/{id}` (1000/hour each), with a 429 response when exceeded. The upload endpoint's own doc page states no explicit number, but in practice a burst of new matches from one poll — each triggering an upload plus a `finalizeReplayTitle` goroutine that calls both of the limited endpoints — could still trip the limit.
+
+`internal/uploader.ballchasingLimiter` is a single shared `golang.org/x/time/rate.Limiter` (1.5/sec, burst 1 — deliberately under the documented ceiling) that every outbound call in the package waits on via `doWithRetry`, regardless of which one of `ValidateToken`/`UploadReplay`/`GetReplay`/`SetReplayTitle` is calling. `doWithRetry` takes a request *factory* rather than a built request, since a request with a body (the multipart upload, the JSON title patch) can only be sent once — each retry attempt needs its own fresh one. A 429 triggers up to 3 retries with doubling backoff (2s, 4s, 8s) before giving up; anything else is returned immediately. Covered by `internal/uploader/ballchasing_test.go` against a real `httptest.Server`, not just reasoned about.
+
 ## Events
 
 Emitted via `runtime.EventsEmit`, payload is `EventPayload` (`account_id`, optional `match_id`/`message`, and `manual` — true if triggered by an explicit "Poll Now" click rather than the scheduled cycle):
