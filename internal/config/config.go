@@ -77,6 +77,32 @@ type Config struct {
 	SkippedUpdateVersion string `json:"skipped_update_version,omitempty"`
 }
 
+// Clone returns a deep copy of c: the Accounts slice, every account's
+// UploadedMatches map, and every LastPollTime are all duplicated, so
+// the copy shares no mutable memory with c. accounts.Manager.persist
+// depends on this: it snapshots the live config under its mutex and
+// then marshals the snapshot *outside* it, which is only safe if no
+// other goroutine can reach the snapshot's maps or slice elements.
+func (c Config) Clone() Config {
+	out := c
+	out.Accounts = make([]Account, len(c.Accounts))
+	for i, acct := range c.Accounts {
+		if acct.UploadedMatches != nil {
+			matches := make(map[string]string, len(acct.UploadedMatches))
+			for k, v := range acct.UploadedMatches {
+				matches[k] = v
+			}
+			acct.UploadedMatches = matches
+		}
+		if acct.LastPollTime != nil {
+			t := *acct.LastPollTime
+			acct.LastPollTime = &t
+		}
+		out.Accounts[i] = acct
+	}
+	return out
+}
+
 // MinPollIntervalSecs is the lowest poll interval allowed — below
 // this, the app would hammer Epic's and ballchasing's APIs rapidly
 // enough to risk both reliability and account-standing problems, for
