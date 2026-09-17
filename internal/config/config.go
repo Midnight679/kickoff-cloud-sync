@@ -20,6 +20,14 @@ import (
 type Account struct {
 	ID                  string `json:"id"`
 	DisplayName         string `json:"display_name"`
+
+	// EpicAccountID is Epic's own stable ID for this account (not a
+	// secret). Empty for an account added before this field existed,
+	// until its next successful login fills it in. Used to refuse
+	// adding the same Epic account twice and to refuse a reauth that
+	// logged into a different Epic account than this entry is for.
+	EpicAccountID string `json:"epic_account_id,omitempty"`
+
 	FriendlyName        string `json:"friendly_name,omitempty"`
 	HasBallchasingToken bool   `json:"has_ballchasing_token"`
 	Paused              bool   `json:"paused"`

@@ -16,6 +16,11 @@ type LoginResult struct {
 	RPC          *rlapi.PsyNetRPC
 	RefreshToken string
 	DisplayName  string
+
+	// AccountID is Epic's stable ID for the account that logged in.
+	// Unlike DisplayName it never changes, so it is what identifies
+	// "the same Epic account" across logins.
+	AccountID string
 }
 
 // GetAuthURL returns the Epic Games Store login URL to open in the
@@ -83,5 +88,6 @@ func finishLogin(egs *rlapi.EGS, token *rlapi.TokenResponse) (LoginResult, error
 		RPC:          rpc,
 		RefreshToken: token.RefreshToken,
 		DisplayName:  token.DisplayName,
+		AccountID:    token.AccountID,
 	}, nil
 }
