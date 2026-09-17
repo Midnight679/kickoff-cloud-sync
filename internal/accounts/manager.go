@@ -111,6 +111,7 @@ type pendingAccount struct {
 	rpc             *rlapi.PsyNetRPC
 	refreshToken    string
 	epicDisplayName string
+	epicAccountID   string
 }
 
 // PendingAccountView is returned once the auth-code step of
@@ -239,6 +240,9 @@ func (m *Manager) Init(ctx context.Context) {
 				if saveErr := secrets.Save(acct.ID, accountSecrets); saveErr != nil {
 					log.Printf("failed to persist rotated refresh token for %s: %v", acct.ID, saveErr)
 				}
+				if m.backfillEpicAccountID(acct.ID, result.AccountID) {
+					_ = m.persist()
+				}
 			}
 		}
 		m.mu.Lock()
@@ -330,12 +334,25 @@ func (m *Manager) SubmitAddAccountCode(ctx context.Context, authCode string) (Pe
 		displayName = "Unknown Player"
 	}
 
+	// Two entries for one Epic account would each hold their own PsyNet
+	// session, and PsyNet allows one per account: every poll cycle each
+	// entry would find itself kicked (DuplicateLogin), reconnect, and
+	// kick the other, and both would upload the same replays.
+	m.mu.Lock()
+	existingLabel, duplicate := m.findByEpicAccountID(result.AccountID)
+	m.mu.Unlock()
+	if duplicate {
+		_ = result.RPC.Close()
+		return PendingAccountView{}, fmt.Errorf("this Epic account is already added as %s", existingLabel)
+	}
+
 	id := newID()
 	m.mu.Lock()
 	m.pending[id] = &pendingAccount{
 		rpc:             result.RPC,
 		refreshToken:    result.RefreshToken,
 		epicDisplayName: displayName,
+		epicAccountID:   result.AccountID,
 	}
 	m.mu.Unlock()
 
@@ -371,6 +388,7 @@ func (m *Manager) ConfirmAddAccount(ctx context.Context, pendingID, ballchasingT
 	acct := config.Account{
 		ID:                  pendingID,
 		DisplayName:         pending.epicDisplayName,
+		EpicAccountID:       pending.epicAccountID,
 		FriendlyName:        friendlyName,
 		HasBallchasingToken: true,
 		UploadedMatches:     make(map[string]string),
@@ -461,6 +479,25 @@ func (m *Manager) SubmitReauthCode(ctx context.Context, id, authCode string) err
 	if idx == -1 {
 		m.mu.Unlock()
 		return errors.New("account was removed during reauth")
+	}
+	if want := m.cfg.Accounts[idx].EpicAccountID; want != "" && result.AccountID != "" && want != result.AccountID {
+		// The browser was signed into a different Epic account. Taking
+		// this login would silently turn this entry into that other
+		// account: its name, dedupe history and ballchasing token would
+		// no longer belong together.
+		label := m.accountLabel(id)
+		if rt, ok := m.runtimes[id]; ok {
+			rt.status = StatusNeedsReauth
+		}
+		m.mu.Unlock()
+		_ = result.RPC.Close()
+		err := fmt.Errorf("you logged in as %q, but this entry is for %s: log in with that Epic account, or add %q as its own account", result.DisplayName, label, result.DisplayName)
+		m.emit(EventAuthError, EventPayload{AccountID: id, Message: err.Error()})
+		m.emit(EventAccountsChanged, EventPayload{})
+		return err
+	}
+	if m.cfg.Accounts[idx].EpicAccountID == "" {
+		m.cfg.Accounts[idx].EpicAccountID = result.AccountID
 	}
 	if result.DisplayName != "" {
 		m.cfg.Accounts[idx].DisplayName = result.DisplayName
@@ -801,6 +838,7 @@ func (m *Manager) ensureConnected(ctx context.Context, id string, rpc *rlapi.Psy
 		rt.status = StatusAuthenticated
 	}
 	m.mu.Unlock()
+	m.backfillEpicAccountID(id, result.AccountID) // saved by pollAccount's persist
 
 	m.emit(EventReconnected, EventPayload{AccountID: id, Message: "connection was dropped (e.g. by DuplicateLogin) and has been silently re-established", Manual: manual})
 	return result.RPC, true
@@ -1112,6 +1150,39 @@ func (m *Manager) resetCacheIfOversized(idx int, keepMatchID, keepReplayID strin
 		return false
 	}
 	m.cfg.Accounts[idx].UploadedMatches = map[string]string{keepMatchID: keepReplayID}
+	return true
+}
+
+// findByEpicAccountID returns the display label of the configured
+// account with the given Epic account ID, if there is one. Must be
+// called with m.mu already held.
+func (m *Manager) findByEpicAccountID(epicAccountID string) (label string, found bool) {
+	if epicAccountID == "" {
+		return "", false
+	}
+	for _, acct := range m.cfg.Accounts {
+		if acct.EpicAccountID == epicAccountID {
+			return m.accountLabel(acct.ID), true
+		}
+	}
+	return "", false
+}
+
+// backfillEpicAccountID records the Epic account ID on an account that
+// was added before the field existed, the first time a login tells us
+// what it is. Reports whether anything changed (so the caller knows a
+// save is due). Never overwrites an ID that is already set.
+func (m *Manager) backfillEpicAccountID(id, epicAccountID string) bool {
+	if epicAccountID == "" {
+		return false
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := m.indexOf(id)
+	if idx == -1 || m.cfg.Accounts[idx].EpicAccountID != "" {
+		return false
+	}
+	m.cfg.Accounts[idx].EpicAccountID = epicAccountID
 	return true
 }
 
