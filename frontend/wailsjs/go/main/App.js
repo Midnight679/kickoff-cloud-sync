@@ -18,6 +18,10 @@ export function CancelReauth(arg1) {
   return window['go']['main']['App']['CancelReauth'](arg1);
 }
 
+export function CheckForUpdateNow() {
+  return window['go']['main']['App']['CheckForUpdateNow']();
+}
+
 export function ConfirmAddAccount(arg1, arg2, arg3) {
   return window['go']['main']['App']['ConfirmAddAccount'](arg1, arg2, arg3);
 }
@@ -88,6 +92,10 @@ export function SetPollIntervalSecs(arg1) {
 
 export function SetReplayVisibility(arg1, arg2) {
   return window['go']['main']['App']['SetReplayVisibility'](arg1, arg2);
+}
+
+export function SkipUpdateVersion(arg1) {
+  return window['go']['main']['App']['SkipUpdateVersion'](arg1);
 }
 
 export function SubmitAddAccountCode(arg1) {

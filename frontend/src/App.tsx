@@ -19,6 +19,7 @@ export default function App() {
   const [log, setLog] = useState<string[]>([]);
   const [view, setView] = useState<View>("accounts");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
+  const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
   const [version, setVersion] = useState("");
 
   // Persistent until the account is actually reauthenticated — not
@@ -110,12 +111,25 @@ export default function App() {
         </div>
       </header>
 
-      {updateInfo?.available && (
+      {updateInfo?.available && updateInfo.latest_version !== dismissedVersion && (
         <div className="update-banner">
           A new version ({updateInfo.latest_version}) is available.{" "}
           <a href={updateInfo.url} target="_blank" rel="noreferrer">
             View release
           </a>
+          <button className="update-banner__link" onClick={() => setDismissedVersion(updateInfo.latest_version ?? null)}>
+            Dismiss
+          </button>
+          <button
+            className="update-banner__link"
+            onClick={() => {
+              const skipped = updateInfo.latest_version;
+              setUpdateInfo(null);
+              if (skipped) api.skipUpdateVersion(skipped);
+            }}
+          >
+            Skip this version
+          </button>
         </div>
       )}
 

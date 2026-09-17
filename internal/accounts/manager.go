@@ -571,6 +571,23 @@ func (m *Manager) SetHTTPTimeoutSecs(secs int) error {
 	return m.persist()
 }
 
+// GetSkippedUpdateVersion returns the release tag the user last
+// chose "skip this version" on, or "" if none.
+func (m *Manager) GetSkippedUpdateVersion() string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cfg.SkippedUpdateVersion
+}
+
+// SetSkippedUpdateVersion persists version as the one to stop
+// automatically notifying about.
+func (m *Manager) SetSkippedUpdateVersion(version string) error {
+	m.mu.Lock()
+	m.cfg.SkippedUpdateVersion = version
+	m.mu.Unlock()
+	return m.persist()
+}
+
 func (m *Manager) SetFriendlyName(id, name string) error {
 	m.mu.Lock()
 	idx := m.indexOf(id)

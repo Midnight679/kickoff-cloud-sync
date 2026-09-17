@@ -13,6 +13,8 @@ export function SettingsBar({ onLog }: Props) {
   const [httpTimeout, setHttpTimeout] = useState<number | "">("");
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [error, setError] = useState("");
+  const [checkingUpdate, setCheckingUpdate] = useState(false);
+  const [updateCheckResult, setUpdateCheckResult] = useState("");
 
   useEffect(() => {
     api.getPollIntervalSecs().then((secs) => setPollIntervalMins(Math.round(secs / 60)));
@@ -55,6 +57,21 @@ export function SettingsBar({ onLog }: Props) {
     }
   }
 
+  async function checkForUpdate() {
+    setCheckingUpdate(true);
+    setUpdateCheckResult("");
+    try {
+      const info = await api.checkForUpdateNow();
+      setUpdateCheckResult(
+        info.available ? `Update available: ${info.latest_version}` : `You're on the latest version (${info.current_version}).`,
+      );
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setCheckingUpdate(false);
+    }
+  }
+
   return (
     <div className="settings-bar">
       <div className="settings-bar__field">
@@ -91,6 +108,12 @@ export function SettingsBar({ onLog }: Props) {
         />
         Launch at Windows startup
       </label>
+      <div className="settings-bar__field">
+        <button className="btn" disabled={checkingUpdate} onClick={checkForUpdate}>
+          {checkingUpdate ? "Checking…" : "Check for updates"}
+        </button>
+        {updateCheckResult && <span>{updateCheckResult}</span>}
+      </div>
       {error && <div className="error-text">{error}</div>}
     </div>
   );

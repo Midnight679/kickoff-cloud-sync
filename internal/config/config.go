@@ -68,6 +68,13 @@ type Config struct {
 	// timeout, one hung request can stall the whole poll cycle
 	// indefinitely, since accounts are polled one at a time.
 	HTTPTimeoutSecs int `json:"http_timeout_secs"`
+
+	// SkippedUpdateVersion is the latest release tag the user chose
+	// "skip this version" on, if any — automatic update checks
+	// (startup, the 24h periodic recheck) suppress the notice for
+	// exactly this version. A manual check from Settings always
+	// reports the real state regardless of this.
+	SkippedUpdateVersion string `json:"skipped_update_version,omitempty"`
 }
 
 // MinPollIntervalSecs is the lowest poll interval allowed — below

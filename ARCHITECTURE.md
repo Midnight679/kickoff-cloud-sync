@@ -53,7 +53,7 @@ While a replay is waiting in this cache, the normal per-match handler skips it e
 
 ## Last-poll summary
 
-`runtimeState.lastPoll` (a `*PollResult` — found/uploaded/failed counts) is scratch state for exactly one poll cycle, not history: `pollAccount` overwrites it in place every time an account is polled, whether or not anything happened, and it's never persisted. `ListAccounts` surfaces it as `AccountView.LastPoll`; the frontend only renders it when `found > 0`, color-coding "uploaded" green when nothing failed and adding a "failed" line when something did. `handleMatch`'s two-part return (`found`, `uploaded`) is what `pollAccount` aggregates into these counts — a match counts as `found` whenever it needed any attention this cycle (freshly detected, pending-retry still outstanding, or errored), and `uploaded` only when it ended in an actual successful upload; `failed` is just `found - uploaded`.
+`runtimeState.lastPoll` (a `*PollResult` — found/uploaded/failed counts) is scratch state for exactly one poll cycle, not history: `pollAccount` overwrites it in place every time an account is polled, whether or not anything happened, and it's never persisted. `ListAccounts` surfaces it as `AccountView.LastPoll`; the frontend (referred to as the "poll summary" line in the account card) renders it after every poll, including "0 found, 0 uploaded" — absent only before the first poll this run. "Uploaded" is colored green only when something was actually found and nothing failed; a "failed" line appears only when something did. `handleMatch`'s two-part return (`found`, `uploaded`) is what `pollAccount` aggregates into these counts — a match counts as `found` whenever it needed any attention this cycle (freshly detected, pending-retry still outstanding, or errored), and `uploaded` only when it ended in an actual successful upload; `failed` is just `found - uploaded`.
 
 ## ballchasing rate limiting
 
@@ -80,6 +80,14 @@ Emitted via `runtime.EventsEmit`, payload is `EventPayload` (`account_id`, optio
 ## Tray error indicator
 
 `Manager.NeedsAttention()` reports whether any account currently has `StatusNeedsReauth` — the same condition the frontend uses to turn the settings gear red. `app.go`'s event-emission callback recomputes this after *every* event, not just reauth-related ones, so it also stays correct after a manual reauth from the UI or any other path that changes an account's status. `SetTrayErrorState` (`tray.go`) then swaps the tray icon between the normal and error-badged `.ico` — both embedded via `go:embed` — but only calls into the tray library when the state actually flips, since that involves writing a temp file.
+
+## Update checking
+
+`internal/updatecheck.Check` compares `appVersion` (a hand-maintained constant in `app.go` — bump it alongside `wails.json`'s `productVersion` and the git tag) against GitHub's `releases/latest` API for this repo, doing numeric dot-separated comparison rather than a string one (`"0.1.10" > "0.1.9"` would be backwards as a plain string compare). It only ever reads GitHub's API — nothing is downloaded or installed automatically.
+
+`App.updateCheckLoop` runs this once at startup and then every `updateCheckInterval` (24h) for as long as the app runs, via a `time.Ticker` tied to the same `pollCtx` the account poll cycle uses, so it stops cleanly on shutdown. `App.runUpdateCheck(respectSkip bool)` is the shared implementation behind both the automatic loop and the manual "Check for updates" button in Settings (`CheckForUpdateNow`): automatic checks pass `respectSkip: true` and suppress the notice entirely (no cached `Info`, no `update-available` event) when the latest version matches `config.Config.SkippedUpdateVersion`; the manual button passes `false` and always reports the real state, since an explicit check is the user asking right now regardless of an earlier skip decision.
+
+The frontend's "Skip this version" button persists the skip via `SkipUpdateVersion` (routed through `Manager`, the sole owner of `config.json`, even though this isn't account data — the same pattern `PollIntervalSecs`/`HTTPTimeoutSecs` already use). "Dismiss" is deliberately *not* persisted — it's just React state (`dismissedVersion`) that hides the banner for the rest of this session, and resets on the next launch or if a newer version than the dismissed one shows up.
 
 ## Packaging and uninstall
 

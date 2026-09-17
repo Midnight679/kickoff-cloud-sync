@@ -46,6 +46,21 @@
   color: var(--accent);
 }
 
+.update-banner__link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin-left: 0.75rem;
+  font-size: inherit;
+  color: var(--text-dim);
+  text-decoration: underline;
+  cursor: pointer;
+}
+
+.update-banner__link:hover {
+  color: var(--text);
+}
+
 /* --- shared controls --- */
 
 .input {

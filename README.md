@@ -20,6 +20,7 @@ The [installer releases](https://github.com/Midnight679/kickoff-cloud-sync/relea
 - **Background polling** — checks for new matches on a configurable interval, with a manual "Poll Now" option per account
 - **Secure credential storage** — tokens live in your OS's native credential store, never in plaintext
 - **Resilient uploads** — a failed upload (network hiccup, ballchasing's daily quota, etc.) is cached and retried automatically; nothing is lost
+- **Update notices** — checks once a day for a newer release and shows a dismissible banner with a link; nothing downloads or installs automatically. "Skip this version" silences it for good; "Check for updates" in Settings checks on demand
 
 ## Requirements
 
@@ -87,6 +88,10 @@ The app polls Epic's match history API for each connected account, downloads any
 ## License
 
 MIT — see [LICENSE](LICENSE). All dependencies use permissive licenses (MIT/Apache-2.0/BSD/ISC) with no copyleft — see [THIRD_PARTY_LICENSES.md](THIRD_PARTY_LICENSES.md) for the full audit.
+
+## Acknowledgments
+
+Inspired by [Rockpload](https://github.com/LEX0RE/rockpload), a similar Rocket League replay auto-uploader. Building a separate version from scratch was the more appealing path, for the sake of having full creative and functional control over how every feature works.
 
 ## Learn more
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"sync"
+	"time"
 
 	"git.sr.ht/~jackmordaunt/go-toast/v2"
 
@@ -18,9 +19,10 @@ import (
 )
 
 // appVersion is this build's version, checked against GitHub's
-// latest release tag on startup (see checkForUpdate). Bump this
-// alongside wails.json's productVersion and the git tag for every
-// release — nothing reads this from git automatically.
+// latest release tag at startup and every updateCheckInterval after
+// that (see updateCheckLoop). Bump this alongside wails.json's
+// productVersion and the git tag for every release — nothing reads
+// this from git automatically.
 const appVersion = "0.2.2"
 
 type App struct {
@@ -91,18 +93,67 @@ func (a *App) startup(ctx context.Context) {
 	SetTrayErrorState(a.mgr.NeedsAttention())
 	a.mgr.StartScheduledPolling(pollCtx)
 
-	go a.checkForUpdate()
+	go a.updateCheckLoop(pollCtx)
 }
 
-// checkForUpdate runs once at startup. A failure (no network, GitHub
-// unreachable, rate limited) is logged and otherwise ignored — this
-// is a convenience notice, not something that should ever interrupt
-// startup or look like an error to the user.
+// updateCheckInterval is how often the app automatically checks for
+// a newer release, beyond the one check at startup — long enough to
+// be a non-issue for GitHub's API, short enough that a tray app left
+// running for days still finds out about a new version reasonably
+// promptly.
+const updateCheckInterval = 24 * time.Hour
+
+// updateCheckLoop checks once immediately, then on updateCheckInterval
+// until ctx is done (app shutdown).
+func (a *App) updateCheckLoop(ctx context.Context) {
+	a.checkForUpdate()
+
+	ticker := time.NewTicker(updateCheckInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			a.checkForUpdate()
+		}
+	}
+}
+
+// checkForUpdate runs an automatic check (startup or the periodic
+// recheck) — unlike CheckForUpdateNow, it suppresses the notice for
+// a version the user already chose "skip this version" on. A failure
+// (no network, GitHub unreachable, rate limited) is logged and
+// otherwise ignored — this is a convenience notice, not something
+// that should ever interrupt startup or look like an error.
 func (a *App) checkForUpdate() {
+	if _, err := a.runUpdateCheck(true); err != nil {
+		log.Printf("update check failed: %v", err)
+	}
+}
+
+// CheckForUpdateNow runs an update check immediately, bypassing the
+// 24h schedule, for the "Check for updates" button in Settings. It
+// always reports the real state — an explicit manual check ignores
+// any previously skipped version, since the user is asking right now.
+func (a *App) CheckForUpdateNow() (updatecheck.Info, error) {
+	return a.runUpdateCheck(false)
+}
+
+// runUpdateCheck is the shared implementation behind checkForUpdate
+// and CheckForUpdateNow. When respectSkip is true and the latest
+// version is the one the user chose to skip, Available is forced to
+// false before caching/emitting — so both GetUpdateInfo and the
+// "update-available" event stay consistent with what should actually
+// be shown.
+func (a *App) runUpdateCheck(respectSkip bool) (updatecheck.Info, error) {
 	info, err := updatecheck.Check(appVersion)
 	if err != nil {
-		log.Printf("update check failed: %v", err)
-		return
+		return updatecheck.Info{}, err
+	}
+
+	if respectSkip && info.Available && info.LatestVersion == a.mgr.GetSkippedUpdateVersion() {
+		info.Available = false
 	}
 
 	a.updateMu.Lock()
@@ -112,15 +163,21 @@ func (a *App) checkForUpdate() {
 	if info.Available {
 		runtime.EventsEmit(a.ctx, "update-available", info)
 	}
+	return info, nil
 }
 
-// GetUpdateInfo returns the result of the startup update check, or
-// its zero value (Available: false) if the check hasn't completed
-// yet or failed.
+// GetUpdateInfo returns the result of the most recent update check,
+// or its zero value (Available: false) if none has completed yet.
 func (a *App) GetUpdateInfo() updatecheck.Info {
 	a.updateMu.Lock()
 	defer a.updateMu.Unlock()
 	return a.updateInfo
+}
+
+// SkipUpdateVersion marks version as one to stop automatically
+// notifying about (see config.Config.SkippedUpdateVersion).
+func (a *App) SkipUpdateVersion(version string) error {
+	return a.mgr.SetSkippedUpdateVersion(version)
 }
 
 // GetAppVersion returns this build's version — independent of

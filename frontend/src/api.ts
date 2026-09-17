@@ -52,6 +52,8 @@ export const api = {
 
   getUpdateInfo: () => app().GetUpdateInfo() as Promise<UpdateInfo>,
   getAppVersion: () => app().GetAppVersion() as Promise<string>,
+  checkForUpdateNow: () => app().CheckForUpdateNow() as Promise<UpdateInfo>,
+  skipUpdateVersion: (version: string) => app().SkipUpdateVersion(version) as Promise<void>,
 };
 
 /** Extracts a readable message from whatever Wails hands back for a Go `error`. */
