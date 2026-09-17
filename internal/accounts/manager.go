@@ -587,6 +587,16 @@ func (m *Manager) SetBallchasingToken(id, token string) error {
 	}
 	m.mu.Unlock()
 
+	// Same check ConfirmAddAccount does for a new account. Without it a
+	// mistyped token is saved without complaint, shows as "token set",
+	// and then every upload fails with a 401 and piles up in the
+	// pending-uploads cache until someone reads the log.
+	if token != "" {
+		if err := uploader.ValidateToken(token); err != nil {
+			return fmt.Errorf("ballchasing token invalid: %w", err)
+		}
+	}
+
 	existing, err := secrets.Load(id)
 	if err != nil {
 		return err
