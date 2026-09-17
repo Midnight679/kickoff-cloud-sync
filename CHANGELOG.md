@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.2
+- **Version marker**: a subtle version label now shows in the bottom-right corner of the window, so you can tell at a glance which build you're running.
+- **README**: Getting started now leads with the pre-built installer from Releases, with building from source as the alternative. Added a disclaimer about Chrome download warnings and Windows SmartScreen/antivirus false positives on the unsigned installer.
+
 ## 0.2.1
 - **Last-poll summary**: each account card now shows how many replays were found and uploaded during its most recently completed poll, so you can tell what happened without switching to the settings/log view. Only ever reflects the latest cycle — not history — and disappears entirely when there's nothing to report.
 - **Fixed a real "too many requests" error from ballchasing**: uploads and the background title-renaming step had no rate limiting or throttling at all, so a poll that found several matches at once could burst past ballchasing's documented limits (2 calls/second on their replay-detail endpoints). Every outbound call now goes through a shared rate limiter, with automatic retry and backoff if a 429 still gets through.
