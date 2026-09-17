@@ -3,6 +3,7 @@ package config
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"time"
@@ -182,7 +183,16 @@ func Load() (Config, error) {
 	}
 	var cfg Config
 	if err := json.Unmarshal(data, &cfg); err != nil {
-		return Config{}, err
+		// The caller falls back to Default() on any Load error, and the
+		// next save then overwrites config.json with that empty config:
+		// every account and its whole dedupe history would be gone for
+		// good. Move the unreadable file aside first so it can still be
+		// inspected or repaired by hand.
+		backup := fmt.Sprintf("%s.corrupt-%d", path, time.Now().Unix())
+		if renameErr := os.Rename(path, backup); renameErr != nil {
+			return Config{}, fmt.Errorf("config.json is unreadable (%v) and could not be backed up: %w", err, renameErr)
+		}
+		return Config{}, fmt.Errorf("config.json was unreadable and has been kept as %s: %w", filepath.Base(backup), err)
 	}
 	if cfg.Accounts == nil {
 		cfg.Accounts = []Account{}
@@ -223,6 +233,14 @@ func Save(cfg Config) error {
 	defer os.Remove(tmpPath) // no-op if the rename below already moved it
 
 	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	// Flush to disk before the rename. Without this, a power loss or
+	// hard freeze shortly after Save can leave the renamed config.json
+	// empty: the rename is journaled but the data blocks may not have
+	// been written yet.
+	if err := tmp.Sync(); err != nil {
 		tmp.Close()
 		return err
 	}
