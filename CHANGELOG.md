@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.1
+- **Last-poll summary**: each account card now shows how many replays were found and uploaded during its most recently completed poll, so you can tell what happened without switching to the settings/log view. Only ever reflects the latest cycle — not history — and disappears entirely when there's nothing to report.
+- **Fixed a real "too many requests" error from ballchasing**: uploads and the background title-renaming step had no rate limiting or throttling at all, so a poll that found several matches at once could burst past ballchasing's documented limits (2 calls/second on their replay-detail endpoints). Every outbound call now goes through a shared rate limiter, with automatic retry and backoff if a 429 still gets through.
+
 ## 0.2.0
 - **The repository is now public.**
 - **Fixed a real bug**: replay downloads were failing with "expected an https URL" — Psyonix's own replay-serving endpoint uses plain HTTP, not HTTPS. The scheme check added during the earlier security review was too strict; it now accepts both, while still rejecting local/internal hosts (the actual protection that check exists for).
