@@ -81,6 +81,13 @@ func main() {
 		Title:       "Kickoff Cloud Sync",
 		Width:       480,
 		Height:      640,
+		// Width is fixed (Min/MaxWidth pinned to the same value) since
+		// the account list is a single column with nothing to gain from
+		// extra horizontal space; height stays freely resizable so
+		// someone with several accounts can make the window taller to
+		// see more cards without scrolling.
+		MinWidth:    480,
+		MaxWidth:    480,
 		StartHidden: startHidden,
 		// Clicking the window's close button hides it instead of
 		// quitting the whole app — this is a background uploader, so
