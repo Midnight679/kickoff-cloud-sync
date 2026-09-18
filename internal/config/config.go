@@ -19,8 +19,8 @@ import (
 // UI can show whether a token is set without a keyring round-trip
 // on every ListAccounts call.
 type Account struct {
-	ID                  string `json:"id"`
-	DisplayName         string `json:"display_name"`
+	ID          string `json:"id"`
+	DisplayName string `json:"display_name"`
 
 	// EpicAccountID is Epic's own stable ID for this account (not a
 	// secret). Empty for an account added before this field existed,
@@ -119,6 +119,20 @@ type Config struct {
 	// enforces a minimum of 1 so this never actually happens from a
 	// deliberate choice.
 	FailedUploadsMaxCount int `json:"failed_uploads_max_count,omitempty"`
+
+	// TotalUploadsEver is a monotonically increasing count of every
+	// replay this app has ever uploaded, across every account, for the
+	// window-title counter (accounts.Manager.TotalUploadedCount).
+	// Incremented once per successful upload and never decremented —
+	// deliberately not derived by summing live Account.UploadedMatches
+	// map sizes, since that map can be truncated by
+	// resetCacheIfOversized's 100MB safety net, which would otherwise
+	// make an "all-time" counter visibly go backwards. Zero on a config
+	// saved before this field existed; accounts.NewManager backfills it
+	// once from the sum of existing UploadedMatches in that case (an
+	// exact count for any account that hasn't hit that truncation yet,
+	// which in practice is every account).
+	TotalUploadsEver int `json:"total_uploads_ever,omitempty"`
 }
 
 // DefaultFailedUploadsRetryHour is used when FailedUploadsRetryHour is

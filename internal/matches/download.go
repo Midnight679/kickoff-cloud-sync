@@ -113,20 +113,48 @@ func validateReplayURL(raw string) error {
 	return nil
 }
 
-// isDisallowedReplayHost reports whether host is (or is a literal IP
-// address for) a loopback, unspecified, private, or link-local
-// address — every form of "this points somewhere internal" that a
-// download from an untrusted URL needs to reject, not just the three
-// specific spellings (localhost, 127.0.0.1, ::1) a hostname blocklist
-// would otherwise name explicitly while missing the many equivalent
-// ones (127.0.0.2, 0.0.0.0, 10.x, 172.16-31.x, 192.168.x, fe80::, …).
+// isDisallowedReplayHost reports whether host is (or resolves to) a
+// loopback, unspecified, private, or link-local address — every form
+// of "this points somewhere internal" that a download from an
+// untrusted URL needs to reject, not just the three specific
+// spellings (localhost, 127.0.0.1, ::1) a hostname blocklist would
+// otherwise name explicitly while missing the many equivalent ones
+// (127.0.0.2, 0.0.0.0, 10.x, 172.16-31.x, 192.168.x, fe80::, …).
+//
+// A real DNS name (not an address literal) is resolved and every
+// address it points to is checked the same way — without this, a name
+// pointing at an internal address (ordinary misconfiguration, or
+// deliberate DNS rebinding) would sail through since only literals
+// were inspected. This doesn't defend against a *second* rebinding
+// between this check and the actual connection a moment later
+// (net/http resolves independently) — closing that fully would need a
+// custom Dialer inspecting the address actually being connected to,
+// which is more machinery than this download path's real threat model
+// (Epic's own API, not a user-supplied URL) currently justifies.
 func isDisallowedReplayHost(host string) bool {
 	if host == "" || strings.EqualFold(host, "localhost") {
 		return true
 	}
-	ip := net.ParseIP(host)
-	if ip == nil {
-		return false // a real DNS name — not an address literal, nothing more to check here
+	if ip := net.ParseIP(host); ip != nil {
+		return isDisallowedIP(ip)
 	}
+
+	addrs, err := net.LookupHost(host)
+	if err != nil || len(addrs) == 0 {
+		// Can't confirm this name is safe. The one host this app
+		// actually downloads from (Psyonix's api.rlpp.psynet.gg)
+		// should always resolve, so failing closed here costs nothing
+		// in the normal case.
+		return true
+	}
+	for _, addr := range addrs {
+		if ip := net.ParseIP(addr); ip == nil || isDisallowedIP(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+func isDisallowedIP(ip net.IP) bool {
 	return ip.IsLoopback() || ip.IsUnspecified() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast()
 }

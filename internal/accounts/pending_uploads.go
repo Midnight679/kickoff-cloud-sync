@@ -101,42 +101,25 @@ func hasPendingReplay(accountID, matchID string) bool {
 	return err == nil
 }
 
-// retryPendingUploads scans the pending-uploads directory and
-// attempts each cached replay again, using that account's *current*
-// ballchasing token (so a token fixed after the original failure
-// works without any other action). Runs once per scheduled poll
-// cycle, before the normal per-account match check — see runCycle.
-// manual is threaded through to emitted events the same as elsewhere,
-// so the frontend log can tell a manual "Poll Now" retry pass apart
-// from a scheduled one.
+// forEachCachedFile scans dir for cached replay files
+// (accountID__matchID.replay — the naming both pending-uploads and
+// failed-uploads use, see pendingFileSeparator), filtering to
+// onlyAccountID when non-empty, and calls handle once for each file
+// whose account isn't already busy elsewhere.
 //
-// onlyAccountID restricts the pass to that one account's files when
-// non-empty — used by PollAccountNow so a manual poll for one account
-// doesn't also retry (and log as "manual") every other account's
-// pending uploads. Every file this pass actually attempts is guarded
-// by m.polling for its account, the same map pollAccount uses: an
-// account already mid-poll elsewhere (another retry pass, or its own
-// pollAccount) is skipped this pass rather than raced, and picked up
-// again next time. This is what stops the scheduled cycle's full pass
-// and a concurrent manual pass for one account from both uploading the
-// same cached file at once.
-//
-// Returns how many uploads succeeded per account, so the caller can
-// fold that into pollAccount's found/uploaded counts — otherwise a
-// cycle that only succeeded via this retry pass would show "0 found,
-// 0 uploaded" in the account card despite having uploaded something,
-// since by the time handleMatch's own dedupe check runs it already
-// finds the match in UploadedMatches.
-func (m *Manager) retryPendingUploads(ctx context.Context, manual bool, onlyAccountID string) map[string]int {
-	uploaded := make(map[string]int)
-
-	dir, err := config.PendingUploadsDir()
-	if err != nil {
-		return uploaded
-	}
+// Shared by retryPendingUploads and retryFailedUploads so the
+// account-busy guard (m.polling — the same map pollAccount uses, so a
+// scheduled poll, a manual "Poll Now", and both retry passes can never
+// step on each other for the same account) and its cleanup are
+// implemented exactly once. m.polling is always released via defer,
+// even if handle (or attemptCachedUpload inside it) panics — before
+// this was factored out, both call sites cleared it with a plain
+// sequential delete() after the fact, so a panic mid-file would have
+// left that account permanently locked out of polling until restart.
+func (m *Manager) forEachCachedFile(dir, onlyAccountID string, handle func(fileName, accountID, matchID string, idx int, hasToken, alreadyUploaded bool, visibility string)) {
 	entries, err := os.ReadDir(dir)
 	if err != nil {
-		return uploaded
+		return
 	}
 
 	for _, entry := range entries {
@@ -158,8 +141,7 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool, onlyAcco
 		}
 		m.polling[accountID] = true
 		idx := m.indexOf(accountID)
-		var hasToken bool
-		var alreadyUploaded bool
+		var hasToken, alreadyUploaded bool
 		var visibility string
 		if idx != -1 {
 			hasToken = m.cfg.Accounts[idx].HasBallchasingToken
@@ -168,7 +150,47 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool, onlyAcco
 		}
 		m.mu.Unlock()
 
-		switch m.attemptCachedUpload(dir, entry.Name(), accountID, matchID, idx, hasToken, alreadyUploaded, visibility, manual) {
+		func() {
+			defer func() {
+				m.mu.Lock()
+				delete(m.polling, accountID)
+				m.mu.Unlock()
+			}()
+			handle(entry.Name(), accountID, matchID, idx, hasToken, alreadyUploaded, visibility)
+		}()
+	}
+}
+
+// retryPendingUploads attempts each cached replay in the
+// pending-uploads directory again, using that account's *current*
+// ballchasing token (so a token fixed after the original failure
+// works without any other action). Runs once per scheduled poll
+// cycle, before the normal per-account match check — see runCycle.
+// manual is threaded through to emitted events the same as elsewhere,
+// so the frontend log can tell a manual "Poll Now" retry pass apart
+// from a scheduled one.
+//
+// onlyAccountID restricts the pass to that one account's files when
+// non-empty — used by PollAccountNow so a manual poll for one account
+// doesn't also retry (and log as "manual") every other account's
+// pending uploads.
+//
+// Returns how many uploads succeeded per account, so the caller can
+// fold that into pollAccount's found/uploaded counts — otherwise a
+// cycle that only succeeded via this retry pass would show "0 found,
+// 0 uploaded" in the account card despite having uploaded something,
+// since by the time handleMatch's own dedupe check runs it already
+// finds the match in UploadedMatches.
+func (m *Manager) retryPendingUploads(ctx context.Context, manual bool, onlyAccountID string) map[string]int {
+	uploaded := make(map[string]int)
+
+	dir, err := config.PendingUploadsDir()
+	if err != nil {
+		return uploaded
+	}
+
+	m.forEachCachedFile(dir, onlyAccountID, func(fileName, accountID, matchID string, idx int, hasToken, alreadyUploaded bool, visibility string) {
+		switch m.attemptCachedUpload(dir, fileName, accountID, matchID, idx, hasToken, alreadyUploaded, visibility, manual) {
 		case cachedUploadSucceeded:
 			uploaded[accountID]++
 		case cachedUploadFailedPermanent:
@@ -177,15 +199,11 @@ func (m *Manager) retryPendingUploads(ctx context.Context, manual bool, onlyAcco
 			// fast-retry queue and into the once-a-day one instead of
 			// leaving it here to be retried (and fail the same way)
 			// every single cycle forever.
-			if err := m.moveToFailedUploads(filepath.Join(dir, entry.Name()), accountID, matchID); err != nil {
+			if err := m.moveToFailedUploads(filepath.Join(dir, fileName), accountID, matchID); err != nil {
 				log.Printf("could not move permanently-failed replay to failed-uploads (%s/%s): %v", accountID, matchID, err)
 			}
 		}
-
-		m.mu.Lock()
-		delete(m.polling, accountID)
-		m.mu.Unlock()
-	}
+	})
 	return uploaded
 }
 
@@ -245,6 +263,7 @@ func (m *Manager) attemptCachedUpload(dir, fileName, accountID, matchID string, 
 	if idx != -1 {
 		displayName = m.cfg.Accounts[idx].DisplayName
 		m.cfg.Accounts[idx].UploadedMatches[matchID] = result.ID
+		m.cfg.TotalUploadsEver++
 		m.resetCacheIfOversized(idx, matchID, result.ID)
 	}
 	m.mu.Unlock()

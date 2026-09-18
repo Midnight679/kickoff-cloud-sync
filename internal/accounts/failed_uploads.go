@@ -78,7 +78,7 @@ func (m *Manager) SetFailedUploadsMaxCount(n int) error {
 // loop's wait so it doesn't fire again almost immediately after,
 // re-attempting the same files a manual run just finished with.
 func (m *Manager) RetryFailedUploadsNow(ctx context.Context) RetryFailedUploadsResult {
-	attempted, succeeded := m.retryFailedUploads(ctx)
+	attempted, succeeded := m.retryFailedUploads(ctx, true)
 	m.recordFailedUploadsRetryRan()
 	m.wakeFailedUploadsRetryLoop()
 	return RetryFailedUploadsResult{Attempted: attempted, Succeeded: succeeded}
@@ -142,6 +142,15 @@ func (m *Manager) moveToFailedUploads(srcPath, accountID, matchID string) error 
 	m.mu.Lock()
 	maxCount := m.cfg.MaxFailedUploads()
 	m.mu.Unlock()
+
+	// Serialized process-wide, not per-account like m.polling: eviction
+	// needs a consistent view of the whole directory, and two different
+	// accounts permanently failing at once would otherwise both read
+	// the same pre-eviction snapshot and could evict the same "oldest"
+	// file instead of two, letting the cap drift upward over time.
+	m.failedUploadsMu.Lock()
+	defer m.failedUploadsMu.Unlock()
+
 	evictOldestFailedUploadsIfFull(dir, maxCount)
 
 	dest := filepath.Join(dir, accountID+pendingFileSeparator+matchID+".replay")
@@ -220,52 +229,24 @@ func evictOldestFailedUploadsIfFull(dir string, maxCount int) {
 // replay is here, it stays on the once-daily schedule regardless of
 // which particular error a given attempt produces, rather than
 // bouncing between directories based on each attempt's classification.
+// manual is threaded through the same way retryPendingUploads does —
+// true for RetryFailedUploadsNow's "Retry now" button, false for
+// runFailedUploadsRetryLoop's automatic daily pass — so the frontend
+// log doesn't misattribute a user-triggered run as the unattended one.
 // Returns how many files were considered and how many of those
 // succeeded, for RetryFailedUploadsNow's summary.
-func (m *Manager) retryFailedUploads(ctx context.Context) (attempted, succeeded int) {
+func (m *Manager) retryFailedUploads(ctx context.Context, manual bool) (attempted, succeeded int) {
 	dir, err := config.FailedUploadsDir()
 	if err != nil {
 		return 0, 0
 	}
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		return 0, 0
-	}
 
-	for _, entry := range entries {
-		if entry.IsDir() || !strings.HasSuffix(entry.Name(), ".replay") {
-			continue
-		}
-		accountID, matchID, ok := parsePendingFilename(entry.Name())
-		if !ok {
-			continue
-		}
-
-		m.mu.Lock()
-		if m.polling[accountID] {
-			m.mu.Unlock()
-			continue // busy elsewhere right now; this account's files wait for tomorrow's pass
-		}
-		m.polling[accountID] = true
-		idx := m.indexOf(accountID)
-		var hasToken, alreadyUploaded bool
-		var visibility string
-		if idx != -1 {
-			hasToken = m.cfg.Accounts[idx].HasBallchasingToken
-			_, alreadyUploaded = m.cfg.Accounts[idx].UploadedMatches[matchID]
-			visibility = m.cfg.Accounts[idx].Visibility()
-		}
-		m.mu.Unlock()
-
+	m.forEachCachedFile(dir, "", func(fileName, accountID, matchID string, idx int, hasToken, alreadyUploaded bool, visibility string) {
 		attempted++
-		if m.attemptCachedUpload(dir, entry.Name(), accountID, matchID, idx, hasToken, alreadyUploaded, visibility, false) == cachedUploadSucceeded {
+		if m.attemptCachedUpload(dir, fileName, accountID, matchID, idx, hasToken, alreadyUploaded, visibility, manual) == cachedUploadSucceeded {
 			succeeded++
 		}
-
-		m.mu.Lock()
-		delete(m.polling, accountID)
-		m.mu.Unlock()
-	}
+	})
 	return attempted, succeeded
 }
 
@@ -335,7 +316,7 @@ func (m *Manager) runFailedUploadsRetryLoop(ctx context.Context) {
 			}
 		}
 
-		m.retryFailedUploads(ctx)
+		m.retryFailedUploads(ctx, false)
 		m.recordFailedUploadsRetryRan()
 	}
 }

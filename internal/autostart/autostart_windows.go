@@ -71,7 +71,11 @@ func disabledViaTaskManager() bool {
 // SetEnabled adds or removes the Run key entry. When enabling, it
 // points at the currently-running executable with a --hidden flag,
 // so an auto-launched instance starts minimized to the tray instead
-// of popping up a window on every login (see main.go).
+// of popping up a window on every login (see main.go). It also clears
+// a StartupApproved\Run disable left by Task Manager's Startup tab, if
+// any — otherwise re-enabling here would write the Run key
+// successfully (no error) while IsEnabled kept reporting false right
+// after, since it checks that value too.
 func SetEnabled(enabled bool) error {
 	key, _, err := registry.CreateKey(registry.CURRENT_USER, runKeyPath, registry.SET_VALUE|registry.QUERY_VALUE)
 	if err != nil {
@@ -93,5 +97,38 @@ func SetEnabled(enabled bool) error {
 	if err := key.SetStringValue(valueName, fmt.Sprintf(`"%s" --hidden`, exe)); err != nil {
 		return fmt.Errorf("writing startup entry: %w", err)
 	}
+
+	clearTaskManagerDisable()
 	return nil
+}
+
+// clearTaskManagerDisable flips an existing StartupApproved\Run
+// disable flag (see disabledViaTaskManager) back to enabled, touching
+// only the first byte — the rest of the value is opaque,
+// Explorer-managed data not worth risking a malformed rewrite of for
+// bytes whose meaning isn't documented. Best-effort and silent: if the
+// key or value doesn't exist at all, there's nothing to clear (an
+// absent value already reads as "not disabled" per
+// disabledViaTaskManager), and any failure here shouldn't undo the
+// Run key write SetEnabled already completed successfully.
+func clearTaskManagerDisable() {
+	key, err := registry.OpenKey(registry.CURRENT_USER, startupApprovedPath, registry.QUERY_VALUE|registry.SET_VALUE)
+	if err != nil {
+		return
+	}
+	defer key.Close()
+
+	data, _, err := key.GetBinaryValue(valueName)
+	if err != nil || len(data) == 0 {
+		return
+	}
+	switch data[0] {
+	case 0x03:
+		data[0] = 0x02
+	case 0x07:
+		data[0] = 0x06
+	default:
+		return // already enabled, or a flag value we shouldn't guess at
+	}
+	_ = key.SetBinaryValue(valueName, data)
 }

@@ -106,3 +106,41 @@ func TestRetryPendingUploads_FiltersByAccountID(t *testing.T) {
 		t.Error("an unfiltered retry pass should have cleaned up acctB's orphaned file")
 	}
 }
+
+// TestForEachCachedFile_ReleasesPollingOnPanic reproduces the bug
+// where retryPendingUploads/retryFailedUploads cleared m.polling with
+// a plain sequential delete() after the per-file work, instead of a
+// defer — so a panic partway through processing one file (from
+// attemptCachedUpload or anything it calls) left that account
+// permanently marked busy, locking it out of both the scheduled poll
+// cycle and manual "Poll Now" until the app restarted. forEachCachedFile
+// now guarantees release via defer regardless of how handle exits.
+func TestForEachCachedFile_ReleasesPollingOnPanic(t *testing.T) {
+	isolateConfigDir(t)
+
+	cfg := config.Default()
+	cfg.Accounts = []config.Account{{ID: "acctA", UploadedMatches: map[string]string{}}}
+	m := NewManager(cfg, nil)
+
+	dir, err := config.PendingUploadsDir()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "acctA__match1.replay"), []byte("data"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	func() {
+		defer func() { _ = recover() }()
+		m.forEachCachedFile(dir, "", func(fileName, accountID, matchID string, idx int, hasToken, alreadyUploaded bool, visibility string) {
+			panic("simulated panic mid-file")
+		})
+	}()
+
+	m.mu.Lock()
+	stillMarkedBusy := m.polling["acctA"]
+	m.mu.Unlock()
+	if stillMarkedBusy {
+		t.Error("m.polling[acctA] was left set after a panic mid-file — this account would be permanently locked out of polling until restart")
+	}
+}
