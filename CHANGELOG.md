@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.2.6
+- **Window title now shows a running total of replays uploaded**, all-time across every account — just for fun.
+- **Fixed 8 correctness bugs found in a follow-up self-review**, checking for the same bug classes the earlier community review caught, recurring in newer code:
+  - A PsyNet connection could leak (socket + goroutine) if an account was removed or reauthenticated while a retry pass — not the main poll — was touching one of its cached files.
+  - A panic mid-file in either upload-retry queue could permanently lock an account out of polling until restart.
+  - The failed-uploads cap could drift above its configured limit under concurrent permanent failures.
+  - The replay-download host check now resolves DNS names instead of only checking literal IP addresses.
+  - Quitting the app while a poll was mid-reconnect could fire a spurious "needs reauth" notification for a perfectly valid account.
+  - Re-enabling "Launch at Windows startup" from the app didn't clear a Task-Manager-set disable flag, so the checkbox could silently revert.
+  - The "Retry failed uploads now" button was logging its results as automatic instead of manual.
+  - The upload counter could visibly decrease after a very large account's internal dedupe cache was reset (now backed by a proper persisted counter).
+
 ## 0.2.5
 - **Permanently-failed uploads no longer retry forever**: a replay ballchasing rejects outright (a genuinely corrupt or unparseable file, not a network hiccup or a bad token) now moves into its own once-a-day retry queue instead of being retried on every poll cycle. The retry time (defaults to 4:00 AM) and how many failed replays are kept before the oldest is dropped (defaults to 100) are both configurable in Settings, alongside a "Retry failed uploads now" button. Prompted by [ABowlOfEleven](https://github.com/ABowlOfEleven)'s report in [issue #9](https://github.com/Midnight679/kickoff-cloud-sync/issues/9).
 - **Several smaller reliability and behavior fixes**, also from ABowlOfEleven's review pass ([issue #10](https://github.com/Midnight679/kickoff-cloud-sync/issues/10)):
