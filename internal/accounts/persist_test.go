@@ -63,3 +63,17 @@ func TestPersistConcurrentWithMapWrites(t *testing.T) {
 
 	wg.Wait()
 }
+
+func TestTotalUploadedCount(t *testing.T) {
+	cfg := config.Default()
+	cfg.Accounts = []config.Account{
+		{ID: "a", UploadedMatches: map[string]string{"m1": "r1", "m2": "r2"}},
+		{ID: "b", UploadedMatches: map[string]string{"m3": "r3"}},
+		{ID: "c"}, // nil map — an account created before UploadedMatches existed
+	}
+	m := NewManager(cfg, nil)
+
+	if got := m.TotalUploadedCount(); got != 3 {
+		t.Errorf("got %d, want 3", got)
+	}
+}

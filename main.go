@@ -78,7 +78,11 @@ func main() {
 	}
 
 	err := wails.Run(&options.App{
-		Title:       "Kickoff Cloud Sync",
+		// Overwritten almost immediately after startup (see
+		// updateWindowTitle in app.go), which appends the running
+		// upload count — this is just what briefly shows before that
+		// first call lands.
+		Title:       appTitle,
 		Width:       480,
 		Height:      640,
 		// Width is fixed (Min/MaxWidth pinned to the same value) since
