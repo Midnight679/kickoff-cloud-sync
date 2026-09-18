@@ -362,6 +362,21 @@ func (m *Manager) NeedsAttention() bool {
 	return false
 }
 
+// TotalUploadedCount returns how many replays have ever been uploaded
+// across every account, all-time — the sum of each account's
+// UploadedMatches dedupe map. Purely a "fun" running total (the window
+// title uses it), not read by any dedupe or retry logic itself.
+func (m *Manager) TotalUploadedCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	total := 0
+	for _, acct := range m.cfg.Accounts {
+		total += len(acct.UploadedMatches)
+	}
+	return total
+}
+
 // SubmitAddAccountCode is step 1 of the add-account flow: it
 // exchanges a manually-copied Epic authorization code (from the URL
 // returned by auth.GetAuthURL) for a live PsyNet connection and the

@@ -2,7 +2,10 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +27,11 @@ import (
 // productVersion and the git tag for every release — nothing reads
 // this from git automatically.
 const appVersion = "0.2.5"
+
+// appTitle is the base window/toast title, shared by main.go's initial
+// options.App.Title, sendReauthNotification, and updateWindowTitle
+// (which appends the running upload count to this).
+const appTitle = "Kickoff Cloud Sync"
 
 type App struct {
 	ctx    context.Context
@@ -52,6 +60,9 @@ func NewApp() *App {
 		if name == accounts.EventNeedsReauth {
 			go sendReauthNotification(payload.Message)
 		}
+		if name == accounts.EventUploadComplete {
+			app.updateWindowTitle()
+		}
 
 		// Recomputed on every event rather than special-cased to
 		// EventNeedsReauth/EventReconnected, so it also stays correct
@@ -63,6 +74,40 @@ func NewApp() *App {
 	return app
 }
 
+// updateWindowTitle sets the window title to the running total of
+// replays ever uploaded across every account, all-time — a small "why
+// not" counter, kept live by being called on every EventUploadComplete
+// and once at startup. WindowSetTitle can be called at any point while
+// the app is running, not just during OnStartup.
+func (a *App) updateWindowTitle() {
+	count := a.mgr.TotalUploadedCount()
+	label := "replays"
+	if count == 1 {
+		label = "replay"
+	}
+	runtime.WindowSetTitle(a.ctx, fmt.Sprintf("%s — %s %s uploaded", appTitle, formatThousands(count), label))
+}
+
+// formatThousands renders n with comma thousands separators, e.g.
+// 1234 -> "1,234". n is always non-negative here (an upload count).
+func formatThousands(n int) string {
+	s := strconv.Itoa(n)
+	if len(s) <= 3 {
+		return s
+	}
+	var b strings.Builder
+	first := len(s) % 3
+	if first == 0 {
+		first = 3
+	}
+	b.WriteString(s[:first])
+	for i := first; i < len(s); i += 3 {
+		b.WriteByte(',')
+		b.WriteString(s[i : i+3])
+	}
+	return b.String()
+}
+
 // sendReauthNotification fires a native OS notification. Best-effort:
 // a failure here (e.g. no notification server, permissions denied)
 // only logs — it must never take down the poll cycle that triggered
@@ -70,7 +115,7 @@ func NewApp() *App {
 func sendReauthNotification(body string) {
 	n := toast.Notification{
 		AppID: notifyAUMID,
-		Title: "Kickoff Cloud Sync",
+		Title: appTitle,
 		Body:  body,
 	}
 	if err := n.Push(); err != nil {
@@ -85,6 +130,8 @@ func (a *App) startup(ctx context.Context) {
 	logbuf.OnWrite(func(line string) {
 		runtime.EventsEmit(a.ctx, "server-log", line)
 	})
+
+	a.updateWindowTitle() // reflects persisted history immediately, before the first poll of this run
 
 	pollCtx, cancel := context.WithCancel(ctx)
 	a.cancel = cancel
