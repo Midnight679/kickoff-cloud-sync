@@ -141,12 +141,37 @@ type PendingAccountView struct {
 }
 
 type Manager struct {
-	mu       sync.Mutex
-	saveMu   sync.Mutex // serializes disk writes so they can never race/interleave — see persist()
-	cfg      config.Config
-	runtimes map[string]*runtimeState
-	pending  map[string]*pendingAccount
-	polling  map[string]bool // account IDs currently mid-poll — guards against manual + scheduled overlap
+	mu     sync.Mutex
+	saveMu sync.Mutex // serializes disk writes so they can never race/interleave — see persist()
+	// failedUploadsMu serializes moveToFailedUploads's evict-then-write
+	// sequence. m.polling's busy guard is keyed per account, so it does
+	// nothing to stop two different accounts from permanently failing
+	// at the same moment, both reading the same failed-uploads
+	// directory snapshot and evicting the same "oldest" file instead of
+	// two — letting the configured cap drift upward over time.
+	failedUploadsMu sync.Mutex
+	cfg             config.Config
+	runtimes        map[string]*runtimeState
+	pending         map[string]*pendingAccount
+	// polling guards against overlapping background work on the same
+	// account: pollAccount and the pending/failed-uploads retry passes
+	// (via forEachCachedFile) all check-and-set this before touching an
+	// account, so at most one of them is ever active for a given
+	// account ID at a time.
+	polling map[string]bool
+	// rpcInUse is the narrower "pollAccount specifically is mid-flight
+	// on this account's *rlapi.PsyNetRPC right now" flag — set only by
+	// pollAccount, unlike polling above, which is also set by the
+	// retry passes for file-upload work that never touches rt.rpc at
+	// all. RemoveAccount/SubmitReauthCode need this narrower signal:
+	// checking polling instead (as they used to) meant a retry pass
+	// merely reading a cached file for this account looked identical
+	// to pollAccount actively using the connection, so removing or
+	// reauthenticating an account while a retry pass had it marked
+	// busy skipped closing the old connection — it leaked, since
+	// pollAccount (the only thing that would otherwise notice the
+	// orphan and close it) was never actually running for it.
+	rpcInUse map[string]bool
 	nextPoll time.Time
 	running  bool
 	onEvent  func(name string, payload EventPayload)
@@ -167,11 +192,21 @@ func NewManager(cfg config.Config, onEvent func(name string, payload EventPayloa
 	if cfg.HTTPTimeoutSecs > 0 {
 		httpclient.SetTimeout(time.Duration(cfg.HTTPTimeoutSecs) * time.Second)
 	}
+	if cfg.TotalUploadsEver == 0 {
+		// Backfill for a config saved before this field existed — sums
+		// to 0 anyway for a genuinely fresh config, so this is safe to
+		// run unconditionally whenever the field is unset. See its doc
+		// comment on config.Config.
+		for _, acct := range cfg.Accounts {
+			cfg.TotalUploadsEver += len(acct.UploadedMatches)
+		}
+	}
 	return &Manager{
 		cfg:                       cfg,
 		runtimes:                  make(map[string]*runtimeState),
 		pending:                   make(map[string]*pendingAccount),
 		polling:                   make(map[string]bool),
+		rpcInUse:                  make(map[string]bool),
 		onEvent:                   onEvent,
 		intervalChanged:           make(chan struct{}, 1),
 		failedUploadsRetryChanged: make(chan struct{}, 1),
@@ -363,18 +398,17 @@ func (m *Manager) NeedsAttention() bool {
 }
 
 // TotalUploadedCount returns how many replays have ever been uploaded
-// across every account, all-time — the sum of each account's
-// UploadedMatches dedupe map. Purely a "fun" running total (the window
-// title uses it), not read by any dedupe or retry logic itself.
+// across every account, all-time. Backed by config.Config.TotalUploadsEver
+// (a monotonic counter incremented on every successful upload) rather
+// than summing live UploadedMatches map sizes, since a per-account map
+// can be truncated by resetCacheIfOversized's safety net — this
+// counter never goes backwards because of that. Purely a "fun" running
+// total (the window title uses it), not read by any dedupe or retry
+// logic itself.
 func (m *Manager) TotalUploadedCount() int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	total := 0
-	for _, acct := range m.cfg.Accounts {
-		total += len(acct.UploadedMatches)
-	}
-	return total
+	return m.cfg.TotalUploadsEver
 }
 
 // SubmitAddAccountCode is step 1 of the add-account flow: it
@@ -563,7 +597,7 @@ func (m *Manager) SubmitReauthCode(ctx context.Context, id, authCode string) err
 		m.cfg.Accounts[idx].DisplayName = result.DisplayName
 	}
 	var replaced *rlapi.PsyNetRPC
-	if old := m.runtimes[id]; old != nil && !m.polling[id] {
+	if old := m.runtimes[id]; old != nil && !m.rpcInUse[id] {
 		replaced = old.rpc
 	}
 	m.runtimes[id] = &runtimeState{rpc: result.RPC, status: StatusAuthenticated}
@@ -611,11 +645,16 @@ func (m *Manager) RemoveAccount(id string) error {
 		return errors.New("account not found")
 	}
 	m.cfg.Accounts = append(m.cfg.Accounts[:idx], m.cfg.Accounts[idx+1:]...)
-	// If this account is mid-poll, leave its connection to pollAccount,
-	// which closes it once the poll is done. rlapi v0.1.23 panics in the
-	// goroutine waiting on a request if the socket is closed under it.
+	// If pollAccount is actively using this account's connection right
+	// now, leave it to pollAccount's own deferred cleanup, which closes
+	// it once the poll is done — rlapi v0.1.23 panics in the goroutine
+	// waiting on a request if the socket is closed under it. Checked
+	// against rpcInUse specifically, not polling: a pending/failed-
+	// uploads retry pass also sets polling for this account while it
+	// works through a cached file, but never touches rt.rpc at all, so
+	// it's always safe to close the connection ourselves in that case.
 	var removed *rlapi.PsyNetRPC
-	if rt := m.runtimes[id]; rt != nil && !m.polling[id] {
+	if rt := m.runtimes[id]; rt != nil && !m.rpcInUse[id] {
 		removed = rt.rpc
 	}
 	delete(m.runtimes, id)
@@ -1002,7 +1041,19 @@ func (m *Manager) ensureConnected(ctx context.Context, id string, rpc *rlapi.Psy
 // *url.Error / net.Error is still reachable through the chain. An
 // actual rejection (expired or revoked refresh token) comes back as a
 // plain formatted error and is correctly not matched here.
+//
+// context.Canceled is checked explicitly alongside those: it does not
+// implement net.Error (only context.DeadlineExceeded does), but
+// internal/auth.withTimeout can return it wrapped whenever the app's
+// own shutdown cancels the poll context mid-login — that's a shutdown
+// racing a reconnect, not Epic rejecting the refresh token, so it
+// belongs on the transient side too. Without this, quitting the app
+// while a poll is mid-reconnect could flag a perfectly valid account
+// needs_reauth and fire a spurious OS notification on the way out.
 func isTransientNetErr(err error) bool {
+	if errors.Is(err, context.Canceled) {
+		return true
+	}
 	var urlErr *url.Error
 	var netErr net.Error
 	return errors.As(err, &urlErr) || errors.As(err, &netErr)
@@ -1085,11 +1136,13 @@ func (m *Manager) pollAccount(ctx context.Context, id string, rpc *rlapi.PsyNetR
 		return false
 	}
 	m.polling[id] = true
+	m.rpcInUse[id] = true
 	m.mu.Unlock()
 
 	defer func() {
 		m.mu.Lock()
 		delete(m.polling, id)
+		delete(m.rpcInUse, id)
 		// The account was removed, or reauthenticated onto a new
 		// connection, while this poll was using rpc. Whoever did that
 		// left rpc open for this poll to finish with; close it now.
@@ -1257,6 +1310,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 	if idx != -1 {
 		displayName = m.cfg.Accounts[idx].DisplayName
 		m.cfg.Accounts[idx].UploadedMatches[matchID] = result.ID
+		m.cfg.TotalUploadsEver++
 		if cleared := m.resetCacheIfOversized(idx, matchID, result.ID); cleared {
 			m.mu.Unlock()
 			m.emit(EventCacheCleared, EventPayload{

@@ -6,6 +6,12 @@ import (
 	"testing"
 )
 
+// TestIsDisallowedReplayHost's DNS-name cases (api.rlpp.psynet.gg,
+// ballchasing.com) exercise a real net.LookupHost call and so need
+// working network/DNS access to pass — matching how api.rlpp.psynet.gg
+// and ballchasing.com are expected to always resolve in practice, per
+// isDisallowedReplayHost's own fail-closed behavior on a resolution
+// failure (see the "unresolvable name" test below).
 func TestIsDisallowedReplayHost(t *testing.T) {
 	cases := []struct {
 		host string
@@ -31,6 +37,19 @@ func TestIsDisallowedReplayHost(t *testing.T) {
 		if got := isDisallowedReplayHost(c.host); got != c.want {
 			t.Errorf("isDisallowedReplayHost(%q) = %v, want %v", c.host, got, c.want)
 		}
+	}
+}
+
+// TestIsDisallowedReplayHost_UnresolvableNameFailsClosed reproduces
+// the DNS-rebinding gap: a hostname (as opposed to an address literal)
+// used to be allowed through unconditionally, without ever being
+// resolved. .invalid is reserved by RFC 2606 specifically for names
+// guaranteed to never resolve, so this is deterministic regardless of
+// real DNS state — a resolution failure must fail closed (disallowed),
+// not sail through as "not a literal, so nothing to check."
+func TestIsDisallowedReplayHost_UnresolvableNameFailsClosed(t *testing.T) {
+	if !isDisallowedReplayHost("this-should-never-exist.invalid") {
+		t.Error("a hostname that fails to resolve should be treated as disallowed, not allowed through unchecked")
 	}
 }
 
