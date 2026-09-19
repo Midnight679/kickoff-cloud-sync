@@ -174,3 +174,74 @@ func TestDoWithRetry_GivesUpAfterMaxAttempts(t *testing.T) {
 		t.Errorf("expected exactly 4 attempts before giving up, got %d", attempts)
 	}
 }
+
+// hijackAndClose simulates the real-world case that motivated this
+// fix: a stale pooled keep-alive connection the server has already
+// closed. Hijacking and closing without writing a response gives the
+// client a transport-level error (e.g. "connection reset by peer"),
+// not an HTTP status code — which doWithRetry did not used to retry
+// on at all, only on a 429 response.
+func hijackAndClose(t *testing.T, w http.ResponseWriter) {
+	t.Helper()
+	hj, ok := w.(http.Hijacker)
+	if !ok {
+		t.Fatal("ResponseWriter doesn't support hijacking")
+	}
+	conn, _, err := hj.Hijack()
+	if err != nil {
+		t.Fatal(err)
+	}
+	conn.Close()
+}
+
+// TestDoWithRetry_RetriesOnTransportError reproduces the real failure
+// this change addresses: a request that fails with a plain
+// transport-level error (not an HTTP response at all) must be retried
+// the same as a 429, not surfaced as an immediate hard failure.
+func TestDoWithRetry_RetriesOnTransportError(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		if attempts < 3 {
+			hijackAndClose(t, w)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	resp, err := doWithRetry(func() (*http.Request, error) {
+		return http.NewRequest(http.MethodGet, server.URL, nil)
+	})
+	if err != nil {
+		t.Fatalf("doWithRetry returned an error: %v", err)
+	}
+	defer resp.Body.Close()
+
+	if attempts != 3 {
+		t.Errorf("expected 3 attempts (2 transport failures + 1 success), got %d", attempts)
+	}
+}
+
+// TestDoWithRetry_GivesUpAfterPersistentTransportErrors mirrors
+// TestDoWithRetry_GivesUpAfterMaxAttempts for the transport-error path:
+// it must give up after the same fixed number of attempts, not retry
+// forever.
+func TestDoWithRetry_GivesUpAfterPersistentTransportErrors(t *testing.T) {
+	attempts := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		hijackAndClose(t, w)
+	}))
+	defer server.Close()
+
+	_, err := doWithRetry(func() (*http.Request, error) {
+		return http.NewRequest(http.MethodGet, server.URL, nil)
+	})
+	if err == nil {
+		t.Fatal("expected an error after persistent transport failures, got nil")
+	}
+	if attempts != 4 {
+		t.Errorf("expected exactly 4 attempts before giving up, got %d", attempts)
+	}
+}
