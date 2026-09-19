@@ -20,6 +20,26 @@ import (
 
 const DefaultTimeout = 30 * time.Second
 
+// sharedTransport backs every client SetTimeout creates, so connection
+// pooling persists across a timeout change instead of each new
+// *http.Client starting from an empty pool. idleConnTimeout is set
+// well under Go's own 90-second default: real-world reverse proxies
+// and CDNs (ballchasing.com's included, confirmed by "connection
+// forcibly closed by the remote host" errors on reuse in practice)
+// commonly close an idle keep-alive connection sooner than that. If
+// the server closes a connection first, the client only finds out when
+// it tries to reuse it — which fails outright for a non-idempotent
+// request like the uploads this app makes, since Go won't silently
+// retry those on its own. Closing idle connections proactively, before
+// the server does, avoids that race in the first place; doWithRetry in
+// internal/uploader is the backstop for whenever it still happens
+// (e.g. if the real server-side timeout turns out to be even shorter).
+const idleConnTimeout = 30 * time.Second
+
+var sharedTransport = &http.Transport{
+	IdleConnTimeout: idleConnTimeout,
+}
+
 var current atomic.Pointer[http.Client]
 
 func init() {
@@ -30,7 +50,7 @@ func init() {
 // timeout. Call this once at startup with the persisted setting,
 // and again whenever the user changes it.
 func SetTimeout(d time.Duration) {
-	current.Store(&http.Client{Timeout: d})
+	current.Store(&http.Client{Timeout: d, Transport: sharedTransport})
 }
 
 // Client returns the current shared *http.Client. Safe to call

@@ -33,14 +33,22 @@ const groupsURL = "https://ballchasing.com/api/groups"
 var ballchasingLimiter = rate.NewLimiter(rate.Limit(1.5), 1)
 
 // doWithRetry runs one HTTP round-trip through the shared rate
-// limiter, retrying with backoff if ballchasing responds 429 — their
-// documented signal to "cool down for a bit before retrying." newReq
-// builds a fresh *http.Request per attempt (rather than taking a
-// pre-built one) since a request with a body can only be sent once.
+// limiter, retrying with backoff on a 429 response (ballchasing's
+// documented "cool down and retry" signal) or on a transport-level
+// failure from Do itself — most commonly a pooled keep-alive
+// connection the server closed while it sat idle between requests
+// (see internal/httpclient's idleConnTimeout, which exists to make
+// this rarer but can't eliminate it outright). Go's client won't
+// silently retry that for a non-idempotent method like the POST
+// uploads use, so without this loop a single stale connection fails
+// the whole upload outright instead of just costing one extra attempt.
+// newReq builds a fresh *http.Request per attempt (rather than taking
+// a pre-built one) since a request with a body can only be sent once.
 func doWithRetry(newReq func() (*http.Request, error)) (*http.Response, error) {
 	const maxAttempts = 4
 	backoff := 2 * time.Second
 
+	var lastErr error
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 		if attempt > 0 {
 			time.Sleep(backoff)
@@ -57,14 +65,16 @@ func doWithRetry(newReq func() (*http.Request, error)) (*http.Response, error) {
 		}
 		resp, err := httpclient.Client().Do(req)
 		if err != nil {
-			return nil, err
+			lastErr = err
+			continue
 		}
 		if resp.StatusCode != http.StatusTooManyRequests {
 			return resp, nil
 		}
+		lastErr = fmt.Errorf("rate limited (429)")
 		resp.Body.Close()
 	}
-	return nil, fmt.Errorf("ballchasing rate limit (429) persisted after %d attempts", maxAttempts)
+	return nil, fmt.Errorf("ballchasing request failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
 // ValidateToken pings ballchasing.com with the given token to
