@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.7
+- **Fixed uploads occasionally failing with "An existing connection was forcibly closed by the remote host"** after an idle stretch (e.g. right after a gaming session) — a pooled connection ballchasing's server had already closed was being reused and failing outright instead of transparently reconnecting. Idle connections are now retired proactively before this can happen, and any upload that still hits it is now retried automatically instead of failing on the spot.
+
 ## 0.2.6
 - **Window title now shows a running total of replays uploaded**, all-time across every account — just for fun.
 - **Fixed 8 correctness bugs found in a follow-up self-review**, checking for the same bug classes the earlier community review caught, recurring in newer code:

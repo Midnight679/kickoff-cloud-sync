@@ -26,7 +26,7 @@ import (
 // that (see updateCheckLoop). Bump this alongside wails.json's
 // productVersion and the git tag for every release — nothing reads
 // this from git automatically.
-const appVersion = "0.2.6"
+const appVersion = "0.2.7"
 
 // appTitle is the base window/toast title, shared by main.go's initial
 // options.App.Title, sendReauthNotification, and updateWindowTitle
