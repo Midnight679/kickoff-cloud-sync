@@ -30,8 +30,13 @@
   right: 8px;
   font-size: 0.85rem;
   color: color-mix(in srgb, var(--bg-raised) 55%, var(--text-dim) 45%);
-  pointer-events: none;
+  text-decoration: none;
   user-select: none;
+}
+
+.version-marker:hover,
+.version-marker:visited {
+  color: color-mix(in srgb, var(--bg-raised) 55%, var(--text-dim) 45%);
 }
 
 .update-banner {

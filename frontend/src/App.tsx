@@ -173,7 +173,16 @@ export default function App() {
         />
       )}
 
-      {version && <div className="version-marker">v{version}</div>}
+      {version && (
+        <a
+          className="version-marker"
+          href={`https://github.com/Midnight679/kickoff-cloud-sync/releases/tag/v${version}`}
+          target="_blank"
+          rel="noreferrer"
+        >
+          v{version}
+        </a>
+      )}
     </div>
   );
 }
