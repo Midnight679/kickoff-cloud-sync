@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.8
+- **The version number in the corner is now a link** to that version's GitHub release page.
+
 ## 0.2.7
 - **Fixed uploads occasionally failing with "An existing connection was forcibly closed by the remote host"** after an idle stretch (e.g. right after a gaming session) — a pooled connection ballchasing's server had already closed was being reused and failing outright instead of transparently reconnecting. Idle connections are now retired proactively before this can happen, and any upload that still hits it is now retried automatically instead of failing on the spot.
 
