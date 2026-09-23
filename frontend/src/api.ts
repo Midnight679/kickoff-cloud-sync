@@ -5,7 +5,7 @@
 // frontend/wailsjs/go bindings — both call the same
 // `window.go.main.App.*` object underneath.
 
-import type { AccountView, PendingAccountView, RetryFailedUploadsResult, UpdateInfo } from "./types";
+import type { AccountView, ImportSettingsResult, PendingAccountView, RetryFailedUploadsResult, UpdateInfo } from "./types";
 
 function app() {
   const w = window as unknown as { go: { main: { App: Record<string, (...args: unknown[]) => Promise<unknown>> } } };
@@ -59,6 +59,15 @@ export const api = {
 
   getLaunchAtLogin: () => app().GetLaunchAtLogin() as Promise<boolean>,
   setLaunchAtLogin: (enabled: boolean) => app().SetLaunchAtLogin(enabled) as Promise<void>,
+
+  getNotifyOnUploadComplete: () => app().GetNotifyOnUploadComplete() as Promise<boolean>,
+  setNotifyOnUploadComplete: (enabled: boolean) =>
+    app().SetNotifyOnUploadComplete(enabled) as Promise<void>,
+
+  // exportSettings resolves to "" and importSettings to null if the
+  // user cancels the native file dialog.
+  exportSettings: () => app().ExportSettings() as Promise<string>,
+  importSettings: () => app().ImportSettings() as Promise<ImportSettingsResult | null>,
 
   getUpdateInfo: () => app().GetUpdateInfo() as Promise<UpdateInfo>,
   getAppVersion: () => app().GetAppVersion() as Promise<string>,

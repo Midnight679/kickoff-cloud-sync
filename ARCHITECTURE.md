@@ -96,7 +96,7 @@ Emitted via `runtime.EventsEmit`, payload is `EventPayload` (`account_id`, optio
 |---|---|
 | `accounts-changed` | Frontend should re-call `ListAccounts` |
 | `match-detected` | A new match was found |
-| `upload-complete` | Upload succeeded |
+| `upload-complete` | Upload succeeded — also drives an optional OS toast notification (`sendUploadNotification`, off by default) when `NotifyOnUploadComplete` is set |
 | `upload-error` | Upload failed (may be retried later from the pending-uploads cache) |
 | `auth-error` | The connection or reconnect attempt failed |
 | `no-matches` | Poll succeeded but history had zero entries |
@@ -115,6 +115,14 @@ Emitted via `runtime.EventsEmit`, payload is `EventPayload` (`account_id`, optio
 `App.updateCheckLoop` runs this once at startup and then every `updateCheckInterval` (24h) for as long as the app runs, via a `time.Ticker` tied to the same `pollCtx` the account poll cycle uses, so it stops cleanly on shutdown. `App.runUpdateCheck(respectSkip bool)` is the shared implementation behind both the automatic loop and the manual "Check for updates" button in Settings (`CheckForUpdateNow`): automatic checks pass `respectSkip: true` and suppress the notice entirely (no cached `Info`, no `update-available` event) when the latest version matches `config.Config.SkippedUpdateVersion`; the manual button passes `false` and always reports the real state, since an explicit check is the user asking right now regardless of an earlier skip decision.
 
 The frontend's "Skip this version" button persists the skip via `SkipUpdateVersion` (routed through `Manager`, the sole owner of `config.json`, even though this isn't account data — the same pattern `PollIntervalSecs`/`HTTPTimeoutSecs` already use). "Dismiss" is deliberately *not* persisted — it's just React state (`dismissedVersion`) that hides the banner for the rest of this session, and resets on the next launch or if a newer version than the dismissed one shows up.
+
+## Settings export/import
+
+`Manager.ExportSettings`/`ImportSettings` (`internal/accounts/settings_export.go`) round-trip a deliberately narrow subset of `Config` as JSON: every global setting, plus each account's non-secret preferences (`FriendlyName`, `ReplayVisibility`, `Paused`). Tokens and refresh tokens are never included — they live only in the OS keyring (see `internal/secrets`), and an account needs a fresh Epic sign-in on any machine regardless of what's in this file, so there'd be nothing meaningful to restore for them anyway.
+
+Account preferences are matched back up on import by `EpicAccountID`, not the account's own `ID` — this app's own IDs are generated fresh every time an account is added, so they never survive a remove-and-re-add, but `EpicAccountID` (Epic's own stable identifier) does. An account with no `EpicAccountID` (added before that field existed, or never completed a login) is skipped on export, since it has nothing to match against. On import, an entry whose `EpicAccountID` doesn't match any currently-configured account is counted in `ImportSettingsResult.AccountsSkipped` rather than erroring — normal right after a fresh install, before those accounts are re-added.
+
+Global settings apply through the exact same setters (`SetPollIntervalSecs`, `SetGroupPrivateSeriesEnabled`, etc.) that Settings' UI calls, so the same validation and side effects (e.g. waking the poll loop on a changed interval) apply on import too — there's no separate "bulk apply" path to keep in sync. `App.ExportSettings`/`ImportSettings` (`app.go`) are thin wrappers that add the native save/open file dialog (`runtime.SaveFileDialog`/`OpenFileDialog`) and the actual file I/O; `ImportSettings` returns a `*accounts.ImportSettingsResult` rather than a plain struct specifically so the frontend can tell "user cancelled the dialog" (`nil`) apart from a real result of zero matches and zero skips (e.g. a settings-only export with no account entries at all).
 
 ## Packaging and uninstall
 

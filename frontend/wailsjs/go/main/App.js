@@ -26,6 +26,10 @@ export function ConfirmAddAccount(arg1, arg2, arg3) {
   return window['go']['main']['App']['ConfirmAddAccount'](arg1, arg2, arg3);
 }
 
+export function ExportSettings() {
+  return window['go']['main']['App']['ExportSettings']();
+}
+
 export function GetAppVersion() {
   return window['go']['main']['App']['GetAppVersion']();
 }
@@ -50,6 +54,10 @@ export function GetLaunchAtLogin() {
   return window['go']['main']['App']['GetLaunchAtLogin']();
 }
 
+export function GetNotifyOnUploadComplete() {
+  return window['go']['main']['App']['GetNotifyOnUploadComplete']();
+}
+
 export function GetPollIntervalSecs() {
   return window['go']['main']['App']['GetPollIntervalSecs']();
 }
@@ -62,6 +70,10 @@ export function GetUpdateInfo() {
   return window['go']['main']['App']['GetUpdateInfo']();
 }
 
+export function ImportSettings() {
+  return window['go']['main']['App']['ImportSettings']();
+}
+
 export function ListAccounts() {
   return window['go']['main']['App']['ListAccounts']();
 }
@@ -72,6 +84,10 @@ export function PauseAccount(arg1) {
 
 export function PollAccountNow(arg1) {
   return window['go']['main']['App']['PollAccountNow'](arg1);
+}
+
+export function PollAllAccountsNow() {
+  return window['go']['main']['App']['PollAllAccountsNow']();
 }
 
 export function RemoveAccount(arg1) {
@@ -112,6 +128,10 @@ export function SetHTTPTimeoutSecs(arg1) {
 
 export function SetLaunchAtLogin(arg1) {
   return window['go']['main']['App']['SetLaunchAtLogin'](arg1);
+}
+
+export function SetNotifyOnUploadComplete(arg1) {
+  return window['go']['main']['App']['SetNotifyOnUploadComplete'](arg1);
 }
 
 export function SetPollIntervalSecs(arg1) {

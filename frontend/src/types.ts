@@ -53,3 +53,8 @@ export interface RetryFailedUploadsResult {
   attempted: number;
   succeeded: number;
 }
+
+export interface ImportSettingsResult {
+  accounts_matched: number;
+  accounts_skipped: number;
+}

@@ -66,6 +66,20 @@ export namespace accounts {
 		    return a;
 		}
 	}
+	export class ImportSettingsResult {
+	    accounts_matched: number;
+	    accounts_skipped: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportSettingsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.accounts_matched = source["accounts_matched"];
+	        this.accounts_skipped = source["accounts_skipped"];
+	    }
+	}
 	export class PendingAccountView {
 	    pending_id: string;
 	    epic_display_name: string;

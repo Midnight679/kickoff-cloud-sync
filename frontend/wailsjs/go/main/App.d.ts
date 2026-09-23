@@ -15,6 +15,8 @@ export function CheckForUpdateNow():Promise<updatecheck.Info>;
 
 export function ConfirmAddAccount(arg1:string,arg2:string,arg3:string):Promise<accounts.AccountView>;
 
+export function ExportSettings():Promise<string>;
+
 export function GetAppVersion():Promise<string>;
 
 export function GetFailedUploadsMaxCount():Promise<number>;
@@ -27,17 +29,23 @@ export function GetHTTPTimeoutSecs():Promise<number>;
 
 export function GetLaunchAtLogin():Promise<boolean>;
 
+export function GetNotifyOnUploadComplete():Promise<boolean>;
+
 export function GetPollIntervalSecs():Promise<number>;
 
 export function GetServerLogs():Promise<Array<string>>;
 
 export function GetUpdateInfo():Promise<updatecheck.Info>;
 
+export function ImportSettings():Promise<accounts.ImportSettingsResult>;
+
 export function ListAccounts():Promise<Array<accounts.AccountView>>;
 
 export function PauseAccount(arg1:string):Promise<void>;
 
 export function PollAccountNow(arg1:string):Promise<void>;
+
+export function PollAllAccountsNow():Promise<void>;
 
 export function RemoveAccount(arg1:string):Promise<void>;
 
@@ -58,6 +66,8 @@ export function SetGroupPrivateSeriesEnabled(arg1:boolean):Promise<void>;
 export function SetHTTPTimeoutSecs(arg1:number):Promise<void>;
 
 export function SetLaunchAtLogin(arg1:boolean):Promise<void>;
+
+export function SetNotifyOnUploadComplete(arg1:boolean):Promise<void>;
 
 export function SetPollIntervalSecs(arg1:number):Promise<void>;
 
