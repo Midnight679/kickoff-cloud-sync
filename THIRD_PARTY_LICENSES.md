@@ -15,21 +15,13 @@ cd frontend && npx license-checker --summary
 |---|---|
 | [github.com/dank/rlapi](https://github.com/dank/rlapi) | MIT |
 | [github.com/wailsapp/wails/v2](https://github.com/wailsapp/wails) | MIT |
-| [github.com/getlantern/systray](https://github.com/getlantern/systray) | Apache-2.0 |
+| [github.com/energye/systray](https://github.com/energye/systray) | Apache-2.0 |
 | [github.com/zalando/go-keyring](https://github.com/zalando/go-keyring) | MIT |
 | github.com/danieljoos/wincred | MIT |
-| github.com/getlantern/context | Apache-2.0 |
-| github.com/getlantern/errors | Apache-2.0 |
-| github.com/getlantern/golog | Apache-2.0 |
-| github.com/getlantern/hex | BSD-3-Clause |
-| github.com/getlantern/hidden | Apache-2.0 |
-| github.com/getlantern/ops | Apache-2.0 |
-| github.com/go-stack/stack | MIT |
 | github.com/gorilla/websocket | BSD-2-Clause |
 | github.com/leaanthony/go-ansi-parser | MIT |
 | github.com/leaanthony/slicer | MIT |
 | github.com/leaanthony/u | MIT |
-| github.com/oxtoacart/bpool | Apache-2.0 |
 | github.com/pkg/errors | BSD-2-Clause |
 | github.com/rivo/uniseg | MIT |
 | github.com/wailsapp/go-webview2 | MIT (combridge) / ISC (webviewloader) |

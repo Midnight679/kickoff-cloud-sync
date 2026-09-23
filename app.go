@@ -26,7 +26,7 @@ import (
 // that (see updateCheckLoop). Bump this alongside wails.json's
 // productVersion and the git tag for every release — nothing reads
 // this from git automatically.
-const appVersion = "0.2.8"
+const appVersion = "0.2.9"
 
 // appTitle is the base window/toast title, shared by main.go's initial
 // options.App.Title, sendReauthNotification, and updateWindowTitle
@@ -343,6 +343,30 @@ func (a *App) SetReplayVisibility(id, visibility string) error {
 
 func (a *App) PollAccountNow(id string) error {
 	return a.mgr.PollAccountNow(a.ctx, id)
+}
+
+// PollAllAccountsNow triggers an immediate manual poll of every
+// account at once, same as clicking every account card's "Poll Now"
+// button — used by the tray icon's "Poll Now" menu item, which has no
+// per-account list to choose from and no window guaranteed open to
+// show a result. Logs a summary itself so the outcome is still visible
+// in Settings' log afterwards even if the window was hidden the whole
+// time.
+func (a *App) PollAllAccountsNow() {
+	accts := a.mgr.ListAccounts()
+	log.Printf("manual poll of all accounts triggered from tray")
+
+	var wg sync.WaitGroup
+	for _, acct := range accts {
+		wg.Add(1)
+		go func(id, label string) {
+			defer wg.Done()
+			if err := a.mgr.PollAccountNow(a.ctx, id); err != nil {
+				log.Printf("tray poll now: %s: %v", label, err)
+			}
+		}(acct.ID, acct.DisplayName)
+	}
+	wg.Wait()
 }
 
 func (a *App) GetPollIntervalSecs() int {

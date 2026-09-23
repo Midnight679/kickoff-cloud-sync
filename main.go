@@ -128,6 +128,7 @@ func main() {
 			// owns showing/hiding the window and quitting the process.
 			go runTray(
 				func() { runtime.WindowShow(ctx) },
+				app.PollAllAccountsNow,
 				func() {
 					app.shutdown(ctx)
 					runtime.Quit(ctx) // actually closes the window and ends the process
