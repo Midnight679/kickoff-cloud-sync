@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.9
+- **Double-click the tray icon to open the window**, same as "Show Window" from the right-click menu.
+- **The tray's right-click menu now has a "Poll Now"** item that checks every account for new replays immediately, without needing to open the window first.
+- Switched the system tray library (`getlantern/systray` → `energye/systray`) to get native double-click support; also drops several now-unused transitive dependencies.
+
 ## 0.2.8
 - **The version number in the corner is now a link** to that version's GitHub release page.
 
