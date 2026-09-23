@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"strconv"
 	"strings"
 	"sync"
@@ -26,7 +27,7 @@ import (
 // that (see updateCheckLoop). Bump this alongside wails.json's
 // productVersion and the git tag for every release — nothing reads
 // this from git automatically.
-const appVersion = "0.2.9"
+const appVersion = "0.2.10"
 
 // appTitle is the base window/toast title, shared by main.go's initial
 // options.App.Title, sendReauthNotification, and updateWindowTitle
@@ -62,6 +63,9 @@ func NewApp() *App {
 		}
 		if name == accounts.EventUploadComplete {
 			app.updateWindowTitle()
+			if app.mgr.GetNotifyOnUploadComplete() {
+				go sendUploadNotification(app.mgr.AccountLabel(payload.AccountID), payload.Message)
+			}
 		}
 
 		// Recomputed on every event rather than special-cased to
@@ -120,6 +124,29 @@ func sendReauthNotification(body string) {
 	}
 	if err := n.Push(); err != nil {
 		log.Printf("failed to send reauth notification: %v", err)
+	}
+}
+
+// sendUploadNotification fires a native OS notification for a
+// successful upload, when the user has opted into this in Settings
+// (off by default — see NotifyOnUploadComplete). Clicking the toast
+// opens the replay on ballchasing.com, since replayURL (the payload's
+// Message field) is already ballchasing's own upload location.
+// Best-effort, same as sendReauthNotification.
+func sendUploadNotification(accountLabel, replayURL string) {
+	body := "A replay was uploaded."
+	if accountLabel != "" {
+		body = fmt.Sprintf("Uploaded a replay for %s.", accountLabel)
+	}
+	n := toast.Notification{
+		AppID:               notifyAUMID,
+		Title:               appTitle,
+		Body:                body,
+		ActivationType:      toast.Protocol,
+		ActivationArguments: replayURL,
+	}
+	if err := n.Push(); err != nil {
+		log.Printf("failed to send upload notification: %v", err)
 	}
 }
 
@@ -396,6 +423,16 @@ func (a *App) SetGroupPrivateSeriesEnabled(enabled bool) error {
 	return a.mgr.SetGroupPrivateSeriesEnabled(enabled)
 }
 
+// GetNotifyOnUploadComplete reports whether a native OS toast fires
+// for every successful upload — off by default.
+func (a *App) GetNotifyOnUploadComplete() bool {
+	return a.mgr.GetNotifyOnUploadComplete()
+}
+
+func (a *App) SetNotifyOnUploadComplete(enabled bool) error {
+	return a.mgr.SetNotifyOnUploadComplete(enabled)
+}
+
 // GetFailedUploadsRetryHour returns the local hour (0-23) the
 // once-a-day retry pass over permanently-failed uploads targets.
 func (a *App) GetFailedUploadsRetryHour() int {
@@ -420,6 +457,57 @@ func (a *App) SetFailedUploadsMaxCount(n int) error {
 // immediately, for the "Retry now" button in Settings.
 func (a *App) RetryFailedUploadsNow() accounts.RetryFailedUploadsResult {
 	return a.mgr.RetryFailedUploadsNow(a.ctx)
+}
+
+// ExportSettings prompts for a save location with a native dialog,
+// then writes a settings-export file there — every global setting
+// plus each account's non-secret preferences (see
+// accounts.SettingsExport for exactly what's included and why tokens
+// never are). Returns "" with a nil error if the user cancels the
+// dialog.
+func (a *App) ExportSettings() (string, error) {
+	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+		Title:           "Export settings",
+		DefaultFilename: "kickoff-cloud-sync-settings.json",
+		Filters:         []runtime.FileFilter{{DisplayName: "JSON files (*.json)", Pattern: "*.json"}},
+	})
+	if err != nil || path == "" {
+		return "", err
+	}
+	data, err := a.mgr.ExportSettings()
+	if err != nil {
+		return "", err
+	}
+	if err := os.WriteFile(path, data, 0o600); err != nil {
+		return "", err
+	}
+	return path, nil
+}
+
+// ImportSettings prompts for a file with a native dialog, then applies
+// it (see accounts.Manager.ImportSettings). Returns nil (both the
+// result and the error) if the user cancels the dialog — a pointer
+// rather than a plain struct specifically so the frontend can tell
+// "cancelled" apart from a real result of zero matches and zero
+// skips, which is a legitimate outcome (e.g. a settings-only export
+// with no account entries at all).
+func (a *App) ImportSettings() (*accounts.ImportSettingsResult, error) {
+	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+		Title:   "Import settings",
+		Filters: []runtime.FileFilter{{DisplayName: "JSON files (*.json)", Pattern: "*.json"}},
+	})
+	if err != nil || path == "" {
+		return nil, err
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	result, err := a.mgr.ImportSettings(data)
+	if err != nil {
+		return nil, err
+	}
+	return &result, nil
 }
 
 // GetLaunchAtLogin reports whether the app is currently registered to

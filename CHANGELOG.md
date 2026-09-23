@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.2.10
+- **Optional upload notifications**: a new "Notify me when a replay uploads" setting (off by default) shows a native toast for every successful upload — click it to open the replay on ballchasing.com.
+- **Settings export/import**: export every setting plus each account's friendly name, replay visibility, and paused state to a JSON file, and import it on another install. Never includes tokens — accounts still need to be re-added and re-authenticated on the new machine, but imported preferences apply automatically once you do, matched by Epic account ID.
+
 ## 0.2.9
 - **Double-click the tray icon to open the window**, same as "Show Window" from the right-click menu.
 - **The tray's right-click menu now has a "Poll Now"** item that checks every account for new replays immediately, without needing to open the window first.

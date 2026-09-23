@@ -22,6 +22,9 @@ export function SettingsBar({ onLog }: Props) {
   const [httpTimeout, setHttpTimeout] = useState<number | "">("");
   const [launchAtLogin, setLaunchAtLogin] = useState(false);
   const [groupPrivateSeries, setGroupPrivateSeries] = useState(true);
+  const [notifyOnUpload, setNotifyOnUpload] = useState(false);
+  const [exportingSettings, setExportingSettings] = useState(false);
+  const [importingSettings, setImportingSettings] = useState(false);
   const [failedUploadsRetryHour, setFailedUploadsRetryHour] = useState(4);
   const [failedUploadsMaxCount, setFailedUploadsMaxCount] = useState<number | "">("");
   const [retryingFailedUploads, setRetryingFailedUploads] = useState(false);
@@ -34,6 +37,7 @@ export function SettingsBar({ onLog }: Props) {
     api.getHttpTimeoutSecs().then(setHttpTimeout);
     api.getLaunchAtLogin().then(setLaunchAtLogin);
     api.getGroupPrivateSeriesEnabled().then(setGroupPrivateSeries);
+    api.getNotifyOnUploadComplete().then(setNotifyOnUpload);
     api.getFailedUploadsRetryHour().then(setFailedUploadsRetryHour);
     api.getFailedUploadsMaxCount().then(setFailedUploadsMaxCount);
   }, []);
@@ -60,6 +64,49 @@ export function SettingsBar({ onLog }: Props) {
     } catch (e) {
       setError(errorMessage(e));
       api.getGroupPrivateSeriesEnabled().then(setGroupPrivateSeries);
+    }
+  }
+
+  async function toggleNotifyOnUpload(checked: boolean) {
+    setNotifyOnUpload(checked);
+    try {
+      await api.setNotifyOnUploadComplete(checked);
+      onLog(checked ? "Will notify on every successful upload." : "Upload notifications turned off.");
+    } catch (e) {
+      setError(errorMessage(e));
+      api.getNotifyOnUploadComplete().then(setNotifyOnUpload);
+    }
+  }
+
+  async function exportSettings() {
+    setExportingSettings(true);
+    try {
+      const path = await api.exportSettings();
+      if (path) onLog(`Settings exported to ${path}.`);
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setExportingSettings(false);
+    }
+  }
+
+  async function importSettings() {
+    setImportingSettings(true);
+    try {
+      const result = await api.importSettings();
+      if (result) {
+        onLog(`Settings imported: ${result.accounts_matched} account(s) matched, ${result.accounts_skipped} skipped.`);
+        api.getPollIntervalSecs().then((secs) => setPollIntervalMins(Math.round(secs / 60)));
+        api.getHttpTimeoutSecs().then(setHttpTimeout);
+        api.getGroupPrivateSeriesEnabled().then(setGroupPrivateSeries);
+        api.getNotifyOnUploadComplete().then(setNotifyOnUpload);
+        api.getFailedUploadsRetryHour().then(setFailedUploadsRetryHour);
+        api.getFailedUploadsMaxCount().then(setFailedUploadsMaxCount);
+      }
+    } catch (e) {
+      setError(errorMessage(e));
+    } finally {
+      setImportingSettings(false);
     }
   }
 
@@ -180,6 +227,14 @@ export function SettingsBar({ onLog }: Props) {
         />
         Group private match series on ballchasing.com
       </label>
+      <label className="settings-bar__field settings-bar__checkbox">
+        <input
+          type="checkbox"
+          checked={notifyOnUpload}
+          onChange={(e) => toggleNotifyOnUpload(e.target.checked)}
+        />
+        Notify me when a replay uploads
+      </label>
       <div className="settings-bar__field">
         <label>Retry failed uploads at</label>
         <select
@@ -217,6 +272,14 @@ export function SettingsBar({ onLog }: Props) {
           {checkingUpdate ? "Checking…" : "Check for updates"}
         </button>
         {updateCheckResult && <span>{updateCheckResult}</span>}
+      </div>
+      <div className="settings-bar__field">
+        <button className="btn" disabled={exportingSettings} onClick={exportSettings}>
+          {exportingSettings ? "Exporting…" : "Export settings"}
+        </button>
+        <button className="btn" disabled={importingSettings} onClick={importSettings}>
+          {importingSettings ? "Importing…" : "Import settings"}
+        </button>
       </div>
       {error && <div className="error-text">{error}</div>}
     </div>

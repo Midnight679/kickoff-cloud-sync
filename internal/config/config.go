@@ -133,6 +133,13 @@ type Config struct {
 	// exact count for any account that hasn't hit that truncation yet,
 	// which in practice is every account).
 	TotalUploadsEver int `json:"total_uploads_ever,omitempty"`
+
+	// NotifyOnUploadComplete fires a native OS toast for every
+	// successful upload when true. Off by default (Go's zero value) —
+	// most uploads happen silently in the background, and a toast per
+	// replay could get noisy for someone with several accounts polling
+	// often.
+	NotifyOnUploadComplete bool `json:"notify_on_upload_complete,omitempty"`
 }
 
 // DefaultFailedUploadsRetryHour is used when FailedUploadsRetryHour is

@@ -22,6 +22,8 @@ The [installer releases](https://github.com/Midnight679/kickoff-cloud-sync/relea
 - **Resilient uploads** — a failed upload (network hiccup, ballchasing's daily quota, etc.) is cached and retried automatically; nothing is lost. A replay ballchasing rejects outright (a genuinely corrupt or unparseable file) is retried much less aggressively — once a day, at a configurable time, instead of every poll — since retrying something ballchasing has actively refused doesn't usually help
 - **Private match series grouping** — consecutive private matches against the same custom-named opponent (e.g. a scrim session) are automatically bundled into a ballchasing.com group; can be turned off in Settings
 - **Update notices** — checks once a day for a newer release and shows a dismissible banner with a link; nothing downloads or installs automatically. "Skip this version" silences it for good; "Check for updates" in Settings checks on demand
+- **Optional upload notifications** — a native toast on every successful upload, off by default; click it to open the replay on ballchasing.com
+- **Portable settings** — export every setting (and each account's preferences) to a JSON file and import it on another install; see [Settings export/import](#settings-exportimport)
 
 ## Requirements
 
@@ -73,6 +75,7 @@ Reauthenticating an existing account (if its login expires) follows the same ope
 - **Network timeout** — how long to wait on downloads/uploads before giving up
 - **Retry failed uploads at** — what time of day the once-daily retry for permanently-rejected replays runs (defaults to 4:00 AM); a "Retry failed uploads now" button triggers one immediately
 - **Failed uploads kept** — how many permanently-rejected replays are kept for retry before the oldest is dropped to make room (defaults to 100)
+- **Notify me when a replay uploads** — off by default; shows a native toast for every successful upload
 
 ### Replay visibility
 
@@ -81,6 +84,12 @@ Each account has its own **Replay visibility** dropdown (public/unlisted/private
 ### Private match series grouping
 
 If you play a private lobby match where the host named both teams (e.g. "POLAR BEARS vs WHISKER GOBLINS"), and then play another private match against the same named opponent right after, both replays get grouped together on ballchasing.com — and any further matches against that same opponent, back to back, join the same group. A one-off private match against a new opponent doesn't get a group of its own; a group is only created once a second match confirms it's actually a series. This is on by default and can be turned off in Settings.
+
+### Settings export/import
+
+"Export settings" writes every setting above, plus each account's friendly name, replay visibility, and paused state, to a JSON file you choose — useful when moving to a new PC. It **never includes tokens or refresh tokens**: those live only in your OS's credential store, so every account still needs to be re-added and signed into Epic again from scratch on the new machine regardless of what's in this file.
+
+"Import settings" applies that file's global settings immediately, then matches each account preference entry to a currently-configured account by its Epic account ID — so re-add your accounts first (or after; order doesn't matter), then import to carry over friendly names, visibility, and paused state without re-entering them by hand. An account not yet re-added is simply skipped; the result tells you how many matched versus were skipped.
 
 ## How it works
 

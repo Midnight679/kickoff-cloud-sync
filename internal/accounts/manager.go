@@ -788,6 +788,22 @@ func (m *Manager) SetGroupPrivateSeriesEnabled(enabled bool) error {
 	return m.persist()
 }
 
+// GetNotifyOnUploadComplete reports whether a native OS toast fires
+// for every successful upload — off by default (see
+// config.Config.NotifyOnUploadComplete).
+func (m *Manager) GetNotifyOnUploadComplete() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cfg.NotifyOnUploadComplete
+}
+
+func (m *Manager) SetNotifyOnUploadComplete(enabled bool) error {
+	m.mu.Lock()
+	m.cfg.NotifyOnUploadComplete = enabled
+	m.mu.Unlock()
+	return m.persist()
+}
+
 // GetSkippedUpdateVersion returns the release tag the user last
 // chose "skip this version" on, or "" if none.
 func (m *Manager) GetSkippedUpdateVersion() string {
@@ -1095,6 +1111,15 @@ func (m *Manager) accountLabel(id string) string {
 		label = fmt.Sprintf("%s (%s)", label, m.cfg.Accounts[idx].FriendlyName)
 	}
 	return label
+}
+
+// AccountLabel is the exported, self-locking form of accountLabel —
+// for App to build a human-readable message (e.g. a toast
+// notification) outside of Manager's own lock.
+func (m *Manager) AccountLabel(id string) string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.accountLabel(id)
 }
 
 // emitNeedsReauthNotice emits EventNeedsReauth for the given account,
