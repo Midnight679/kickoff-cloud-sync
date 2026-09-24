@@ -340,41 +340,49 @@ func (m *Manager) ListAccounts() []AccountView {
 
 	views := make([]AccountView, 0, len(m.cfg.Accounts))
 	for _, acct := range m.cfg.Accounts {
-		rt := m.runtimes[acct.ID]
-		// No runtime entry yet only happens in the brief window before
-		// Init has run at all — Init immediately marks every account
-		// authenticating before it does anything slower, so this isn't
-		// "we tried and it failed," just "we haven't started yet."
-		status := StatusAuthenticating
-		if rt != nil {
-			status = rt.status
-		}
-
-		var nextPoll *time.Time
-		if m.running && !acct.Paused {
-			np := m.nextPoll
-			nextPoll = &np
-		}
-
-		var lastPoll *PollResult
-		if rt != nil {
-			lastPoll = rt.lastPoll
-		}
-
-		views = append(views, AccountView{
-			ID:               acct.ID,
-			DisplayName:      acct.DisplayName,
-			FriendlyName:     acct.FriendlyName,
-			AuthStatus:       status,
-			Paused:           acct.Paused,
-			LastPollTime:     acct.LastPollTime,
-			NextPollTime:     nextPoll,
-			HasToken:         acct.HasBallchasingToken,
-			ReplayVisibility: acct.Visibility(),
-			LastPoll:         lastPoll,
-		})
+		views = append(views, m.accountView(acct))
 	}
 	return views
+}
+
+// accountView builds one account's AccountView. Must be called with
+// m.mu already held — factored out of ListAccounts so viewFor can
+// build a single account's view without allocating and filling a
+// slice for every configured account just to use one entry from it.
+func (m *Manager) accountView(acct config.Account) AccountView {
+	rt := m.runtimes[acct.ID]
+	// No runtime entry yet only happens in the brief window before
+	// Init has run at all — Init immediately marks every account
+	// authenticating before it does anything slower, so this isn't
+	// "we tried and it failed," just "we haven't started yet."
+	status := StatusAuthenticating
+	if rt != nil {
+		status = rt.status
+	}
+
+	var nextPoll *time.Time
+	if m.running && !acct.Paused {
+		np := m.nextPoll
+		nextPoll = &np
+	}
+
+	var lastPoll *PollResult
+	if rt != nil {
+		lastPoll = rt.lastPoll
+	}
+
+	return AccountView{
+		ID:               acct.ID,
+		DisplayName:      acct.DisplayName,
+		FriendlyName:     acct.FriendlyName,
+		AuthStatus:       status,
+		Paused:           acct.Paused,
+		LastPollTime:     acct.LastPollTime,
+		NextPollTime:     nextPoll,
+		HasToken:         acct.HasBallchasingToken,
+		ReplayVisibility: acct.Visibility(),
+		LastPoll:         lastPoll,
+	}
 }
 
 // NeedsAttention reports whether any account currently needs
@@ -1466,6 +1474,23 @@ func (m *Manager) indexOf(id string) int {
 	return -1
 }
 
+// minJSONMapEntryBytes is a hard, unconditional lower bound on how
+// many bytes a single map[string]string entry can possibly add to its
+// JSON encoding, regardless of key/value content: even a zero-length
+// key and value still cost `"":"",` — two pairs of quotes, a colon,
+// and a comma. Real UploadedMatches entries (match ID key, replay ID
+// value) are far larger in practice, but this only needs to be a safe
+// floor, never an estimate.
+const minJSONMapEntryBytes = 6
+
+// cacheClearMinEntries is the map length below which
+// resetCacheIfOversized's real marshal-and-size-check is skipped
+// entirely: even at minJSONMapEntryBytes per entry (impossible to
+// beat), a map shorter than this cannot yet reach
+// maxUploadedMatchesCacheBytes, so marshaling it just to confirm that
+// is wasted work repeated on every single upload.
+const cacheClearMinEntries = maxUploadedMatchesCacheBytes / minJSONMapEntryBytes
+
 // resetCacheIfOversized must be called with m.mu already held. If
 // the account's UploadedMatches map (serialized) exceeds
 // maxUploadedMatchesCacheBytes, it clears the whole map and
@@ -1478,6 +1503,9 @@ func (m *Manager) indexOf(id string) int {
 // constant — but it's a hard ceiling rather than leaving the cache
 // unbounded, per your request.
 func (m *Manager) resetCacheIfOversized(idx int, keepMatchID, keepReplayID string) bool {
+	if len(m.cfg.Accounts[idx].UploadedMatches) < cacheClearMinEntries {
+		return false
+	}
 	data, err := json.Marshal(m.cfg.Accounts[idx].UploadedMatches)
 	if err != nil || len(data) <= maxUploadedMatchesCacheBytes {
 		return false
@@ -1520,10 +1548,11 @@ func (m *Manager) backfillEpicAccountID(id, epicAccountID string) bool {
 }
 
 func (m *Manager) viewFor(id string) AccountView {
-	for _, v := range m.ListAccounts() {
-		if v.ID == id {
-			return v
-		}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	idx := m.indexOf(id)
+	if idx == -1 {
+		return AccountView{}
 	}
-	return AccountView{}
+	return m.accountView(m.cfg.Accounts[idx])
 }

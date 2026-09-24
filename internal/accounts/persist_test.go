@@ -82,6 +82,31 @@ func TestTotalUploadedCount(t *testing.T) {
 	}
 }
 
+// TestResetCacheIfOversized_SkipsMarshalForSmallMap guards the
+// cacheClearMinEntries short-circuit: a realistically small
+// UploadedMatches map (nowhere near maxUploadedMatchesCacheBytes)
+// must still come back false and leave the map untouched, the exact
+// same outcome as before that short-circuit was added — this only
+// checks the observable behavior is unchanged, not which code path
+// produced it.
+func TestResetCacheIfOversized_SkipsMarshalForSmallMap(t *testing.T) {
+	cfg := config.Default()
+	cfg.Accounts = []config.Account{{ID: "a", UploadedMatches: map[string]string{"m1": "r1", "m2": "r2"}}}
+	m := NewManager(cfg, nil)
+
+	m.mu.Lock()
+	reset := m.resetCacheIfOversized(0, "m3", "r3")
+	got := len(m.cfg.Accounts[0].UploadedMatches)
+	m.mu.Unlock()
+
+	if reset {
+		t.Error("resetCacheIfOversized reported a reset for a tiny map")
+	}
+	if got != 2 {
+		t.Errorf("UploadedMatches has %d entries, want 2 (unchanged)", got)
+	}
+}
+
 // TestTotalUploadedCount_UnaffectedByMapTruncation reproduces the bug
 // where the counter was derived live from summing Account.UploadedMatches
 // map sizes, which resetCacheIfOversized's 100MB safety net can

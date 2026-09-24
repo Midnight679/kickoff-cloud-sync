@@ -58,3 +58,14 @@ export interface ImportSettingsResult {
   accounts_matched: number;
   accounts_skipped: number;
 }
+
+// A single line in the event log or server log. id is a stable,
+// monotonically increasing identity assigned once when the line is
+// appended — used as the React key instead of array index, since both
+// logs prepend new lines (shifting every existing entry's index) and
+// an index key would make React rewrite every rendered line's text on
+// every single new entry instead of just inserting the new one.
+export interface LogEntry {
+  id: number;
+  text: string;
+}
