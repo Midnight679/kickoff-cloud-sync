@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.11
+- Internal efficiency improvements, no user-visible behavior change: skipped a redundant JSON marshal on every upload, replay downloads now share the app's tuned HTTP connection pool, the event/server logs render more efficiently as they grow, and a couple of small allocation trims.
+
 ## 0.2.10
 - **Optional upload notifications**: a new "Notify me when a replay uploads" setting (off by default) shows a native toast for every successful upload — click it to open the replay on ballchasing.com.
 - **Settings export/import**: export every setting plus each account's friendly name, replay visibility, and paused state to a JSON file, and import it on another install. Never includes tokens — accounts still need to be re-added and re-authenticated on the new machine, but imported preferences apply automatically once you do, matched by Epic account ID.

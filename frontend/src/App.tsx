@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useState } from "react";
-import type { AccountView, EventPayload, UpdateInfo } from "./types";
+import { useCallback, useEffect, useRef, useState } from "react";
+import type { AccountView, EventPayload, LogEntry, UpdateInfo } from "./types";
 import { api } from "./api";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { AccountCard } from "./components/AccountCard";
@@ -16,7 +16,8 @@ type View = "accounts" | "settings";
 export default function App() {
   const [accounts, setAccounts] = useState<AccountView[]>([]);
   const [modal, setModal] = useState<Modal>(null);
-  const [log, setLog] = useState<string[]>([]);
+  const [log, setLog] = useState<LogEntry[]>([]);
+  const nextLogId = useRef(0);
   const [view, setView] = useState<View>("accounts");
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
@@ -28,8 +29,8 @@ export default function App() {
   const needsAttention = accounts.some((a) => a.auth_status === "needs_reauth");
 
   const appendLog = useCallback((msg: string) => {
-    const line = `[${new Date().toLocaleTimeString()}] ${msg}`;
-    setLog((prev) => [line, ...prev].slice(0, MAX_LOG_ENTRIES));
+    const text = `[${new Date().toLocaleTimeString()}] ${msg}`;
+    setLog((prev) => [{ id: nextLogId.current++, text }, ...prev].slice(0, MAX_LOG_ENTRIES));
   }, []);
 
   // Poll-triggered events all carry `manual` — surfacing it in the

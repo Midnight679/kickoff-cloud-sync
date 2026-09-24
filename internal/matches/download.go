@@ -33,9 +33,14 @@ func DownloadReplay(replayURL string) (string, error) {
 	// CheckRedirect needs to re-run validateReplayURL against every
 	// redirect hop, which is specific to this one call, not something
 	// every outbound call in the app (ballchasing included) should
-	// have applied to it. The timeout still tracks the user's setting.
+	// have applied to it. The timeout still tracks the user's setting,
+	// and Transport is still the shared one so this shares the same
+	// connection pool and IdleConnTimeout tuning as every other
+	// outbound call, instead of falling back to http.DefaultTransport's
+	// longer, mismatched idle timeout.
 	client := &http.Client{
-		Timeout: httpclient.Client().Timeout,
+		Timeout:   httpclient.Client().Timeout,
+		Transport: httpclient.Transport(),
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if err := validateReplayURL(req.URL.String()); err != nil {
 				return fmt.Errorf("refusing to follow redirect: %w", err)

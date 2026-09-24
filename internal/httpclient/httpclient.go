@@ -58,3 +58,13 @@ func SetTimeout(d time.Duration) {
 func Client() *http.Client {
 	return current.Load()
 }
+
+// Transport returns the shared *http.Transport backing every client
+// SetTimeout creates. Exported so a caller that needs its own
+// *http.Client for different behavior (e.g. custom redirect handling)
+// can still share this connection pool and its IdleConnTimeout tuning,
+// instead of building a client with no Transport set and silently
+// falling back to http.DefaultTransport's longer, mismatched timeout.
+func Transport() *http.Transport {
+	return sharedTransport
+}

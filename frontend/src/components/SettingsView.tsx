@@ -1,4 +1,5 @@
 import { useState } from "react";
+import type { LogEntry } from "../types";
 import { SettingsBar } from "./SettingsBar";
 import { EventLog } from "./EventLog";
 import { ServerLog } from "./ServerLog";
@@ -6,7 +7,7 @@ import { ServerLog } from "./ServerLog";
 type Tab = "event" | "server";
 
 interface Props {
-  eventLog: string[];
+  eventLog: LogEntry[];
   onLog: (msg: string) => void;
   onBack: () => void;
 }
