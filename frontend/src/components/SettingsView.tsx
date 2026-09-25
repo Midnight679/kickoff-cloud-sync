@@ -24,18 +24,20 @@ export function SettingsView({ eventLog, onLog, onBack }: Props) {
         <h2>Settings and logs</h2>
       </div>
 
-      <SettingsBar onLog={onLog} />
+      <div className="settings-view__body">
+        <SettingsBar onLog={onLog} />
 
-      <div className="tab-bar">
-        <button className={`tab ${tab === "event" ? "tab--active" : ""}`} onClick={() => setTab("event")}>
-          Event log
-        </button>
-        <button className={`tab ${tab === "server" ? "tab--active" : ""}`} onClick={() => setTab("server")}>
-          Server log
-        </button>
+        <div className="tab-bar">
+          <button className={`tab ${tab === "event" ? "tab--active" : ""}`} onClick={() => setTab("event")}>
+            Event log
+          </button>
+          <button className={`tab ${tab === "server" ? "tab--active" : ""}`} onClick={() => setTab("server")}>
+            Server log
+          </button>
+        </div>
+
+        <div className="settings-view__log">{tab === "event" ? <EventLog entries={eventLog} /> : <ServerLog />}</div>
       </div>
-
-      <div className="settings-view__log">{tab === "event" ? <EventLog entries={eventLog} /> : <ServerLog />}</div>
     </div>
   );
 }

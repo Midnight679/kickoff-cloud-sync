@@ -4,7 +4,7 @@ go 1.26.0
 
 require (
 	git.sr.ht/~jackmordaunt/go-toast/v2 v2.0.3
-	github.com/dank/rlapi v0.1.23
+	github.com/dank/rlapi v0.1.26
 	github.com/energye/systray v1.0.3
 	github.com/wailsapp/wails/v2 v2.16.0
 	github.com/zalando/go-keyring v0.2.6
