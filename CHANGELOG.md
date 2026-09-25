@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.13
+- **Each account card now shows how long ago its last poll ran** (e.g. "9:17:25 AM (5 minutes ago)"), updating live.
+
 ## 0.2.12
 - **Fixed logins failing with "version mismatch"** after a Rocket League game update — bumped the `dank/rlapi` dependency to the current game version.
 - **The app now detects a version mismatch itself** and shows a dialog explaining it, with a "Check for updates" button and a link to open a GitHub issue, instead of just a generic auth-error log line.

@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { AccountView } from "../types";
 import { api, errorMessage } from "../api";
 
@@ -10,6 +10,18 @@ const STATUS_LABEL: Record<AccountView["auth_status"], string> = {
 
 function fmtTime(iso?: string): string {
   return iso ? new Date(iso).toLocaleTimeString() : "—";
+}
+
+/** "5 minutes ago", "2 hours ago", etc. — "" if iso is absent or in the future. */
+function timeAgo(iso?: string): string {
+  if (!iso) return "";
+  const minutes = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} minute${minutes === 1 ? "" : "s"} ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hour${hours === 1 ? "" : "s"} ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
 }
 
 function fmtName(a: AccountView): string {
@@ -31,6 +43,15 @@ export function AccountCard({ account, onChanged, onReauth, onLog }: Props) {
   const [friendlyName, setFriendlyName] = useState(account.friendly_name ?? "");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+
+  // Forces a re-render every 30s purely so "X minutes ago" stays
+  // fresh — nothing is fetched, account.last_poll_time only actually
+  // changes when a real poll happens.
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((n) => n + 1), 30_000);
+    return () => clearInterval(id);
+  }, []);
 
   async function run(action: () => Promise<void>, label: string) {
     setBusy(true);
@@ -112,7 +133,10 @@ export function AccountCard({ account, onChanged, onReauth, onLog }: Props) {
       )}
 
       <div className="account-card__row account-card__meta">
-        <span>Last poll: {fmtTime(account.last_poll_time)}</span>
+        <span>
+          Last poll: {fmtTime(account.last_poll_time)}
+          {account.last_poll_time && ` (${timeAgo(account.last_poll_time)})`}
+        </span>
         <span>Next poll: {account.paused ? "paused" : fmtTime(account.next_poll_time)}</span>
       </div>
 
