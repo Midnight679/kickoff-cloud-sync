@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/dank/rlapi"
 
@@ -108,6 +109,24 @@ func withTimeout(ctx context.Context, fn func() (LoginResult, error)) (LoginResu
 		}()
 		return LoginResult{}, fmt.Errorf("logging in: %w", ctx.Err())
 	}
+}
+
+// IsVersionMismatch reports whether err is Epic/PsyNet rejecting the
+// game version dank/rlapi presents (see ARCHITECTURE.md's Epic
+// authentication section) rather than a problem with this specific
+// account or a network issue. rlapi doesn't export a typed sentinel
+// for this — the server's own error type/message just flows through
+// as plain text — so this matches on the substring PsyNet's response
+// actually uses, with spaces stripped and case folded to catch it
+// showing up in either the error's "Type" field (e.g. "VersionMismatch")
+// or its "Message" field (e.g. "version mismatch") without depending
+// on which one it lands in.
+func IsVersionMismatch(err error) bool {
+	if err == nil {
+		return false
+	}
+	normalized := strings.ToLower(strings.ReplaceAll(err.Error(), " ", ""))
+	return strings.Contains(normalized, "versionmismatch")
 }
 
 // finishLogin carries a successful EGS token (however it was

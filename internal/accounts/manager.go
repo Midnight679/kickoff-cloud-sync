@@ -52,6 +52,17 @@ const (
 	EventNoMatches       = "no-matches"       // payload: EventPayload — poll succeeded but history had zero entries
 	EventReconnected     = "reconnected"      // payload: EventPayload — dropped connection (e.g. DuplicateLogin) silently re-established
 	EventNeedsReauth     = "needs-reauth"     // payload: EventPayload — fired once per transition into needs_reauth (not on every retry), for a one-time OS notification
+	// EventVersionMismatch fires when a login attempt fails because
+	// dank/rlapi's game version is stale against a real Rocket League
+	// patch (see auth.IsVersionMismatch and ARCHITECTURE.md's Epic
+	// authentication section) — a problem with this app's build, not
+	// with any specific account or credential. payload: EventPayload,
+	// Message is the raw underlying error. A user-initiated login
+	// (add account, reauth) fires this every time, since the user is
+	// actively watching; a background login (startup, silent
+	// reconnect) fires it at most once per run, so a poll cycle stuck
+	// on a stale build doesn't reopen the notice every cycle.
+	EventVersionMismatch = "version-mismatch"
 )
 
 type EventPayload struct {
@@ -186,6 +197,13 @@ type Manager struct {
 	// runFailedUploadsRetryLoop — signalled by SetFailedUploadsRetryHour
 	// and RetryFailedUploadsNow.
 	failedUploadsRetryChanged chan struct{}
+
+	// versionMismatchNotified guards EventVersionMismatch's once-per-run
+	// limit for background-triggered detections (startup, silent
+	// reconnect) — see maybeEmitVersionMismatch. Not persisted: a fresh
+	// run (e.g. after updating to a release that fixes it) should be
+	// able to notify again if it's somehow still broken.
+	versionMismatchNotified bool
 }
 
 func NewManager(cfg config.Config, onEvent func(name string, payload EventPayload)) *Manager {
@@ -304,6 +322,9 @@ func (m *Manager) Init(ctx context.Context) {
 				// ensureConnected retries on every poll from here.
 				log.Printf("startup login for %s hit a network error, will retry on the next poll: %v", acct.ID, loginErr)
 				status = StatusAuthenticated
+			}
+			if loginErr != nil && !isTransientNetErr(loginErr) {
+				m.maybeEmitVersionMismatch(loginErr, false)
 			}
 			if loginErr == nil {
 				rpc = result.RPC
@@ -428,6 +449,7 @@ func (m *Manager) TotalUploadedCount() int {
 func (m *Manager) SubmitAddAccountCode(ctx context.Context, authCode string) (PendingAccountView, error) {
 	result, err := auth.CompleteEpicLogin(ctx, authCode)
 	if err != nil {
+		m.maybeEmitVersionMismatch(err, true)
 		return PendingAccountView{}, fmt.Errorf("login failed: %w", err)
 	}
 
@@ -573,6 +595,7 @@ func (m *Manager) SubmitReauthCode(ctx context.Context, id, authCode string) err
 		}
 		m.mu.Unlock()
 		m.emit(EventAuthError, EventPayload{AccountID: id, Message: err.Error()})
+		m.maybeEmitVersionMismatch(err, true)
 		return err
 	}
 
@@ -1035,6 +1058,11 @@ func (m *Manager) ensureConnected(ctx context.Context, id string, rpc *rlapi.Psy
 			return nil, false
 		}
 		m.flagNeedsReauth(id, fmt.Sprintf("connection lost and silent reconnect failed: %v", err), manual)
+		// Always background here regardless of manual (a manually
+		// triggered "Poll Now" is still a silent reconnect under the
+		// hood, not a login the user is watching a dialog for) — see
+		// maybeEmitVersionMismatch's once-per-run limit for that case.
+		m.maybeEmitVersionMismatch(err, false)
 		return nil, false
 	}
 
@@ -1147,6 +1175,29 @@ func (m *Manager) emitNeedsReauthNotice(id string) {
 		AccountID: id,
 		Message:   fmt.Sprintf("%s needs to be reauthenticated — replays aren't being checked for this account.", label),
 	})
+}
+
+// maybeEmitVersionMismatch checks err for the version-mismatch
+// condition (see auth.IsVersionMismatch) and, if it matches, emits
+// EventVersionMismatch — a no-op otherwise. manual should be true only
+// for a login the user is actively watching right now (add account,
+// reauth), which always re-notifies; a background login (startup,
+// silent reconnect) notifies at most once per run, so a poll cycle
+// stuck on a stale build doesn't reopen the notice every cycle.
+func (m *Manager) maybeEmitVersionMismatch(err error, manual bool) {
+	if !auth.IsVersionMismatch(err) {
+		return
+	}
+	if !manual {
+		m.mu.Lock()
+		already := m.versionMismatchNotified
+		m.versionMismatchNotified = true
+		m.mu.Unlock()
+		if already {
+			return
+		}
+	}
+	m.emit(EventVersionMismatch, EventPayload{Message: err.Error()})
 }
 
 // pollAccount does the actual poll work for one account. It returns

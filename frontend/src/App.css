@@ -171,6 +171,12 @@
 
 .account-list {
   flex: 1;
+  /* Without this, a flex/grid item won't shrink below its content's
+     natural height in a column flex container — the list would just
+     grow .app past the window height instead of scrolling internally,
+     and .app's overflow: hidden would silently clip the bottom cards
+     with no scrollbar ever appearing. */
+  min-height: 0;
   overflow-y: auto;
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
@@ -342,6 +348,20 @@
 .settings-view__header h2 {
   font-size: 1rem;
   margin: 0;
+}
+
+/* Keeps the back button/title above always visible and pinned, while
+   everything below (settings fields, tabs, log) scrolls as one unit
+   whenever it doesn't fit — the settings fields don't shrink on their
+   own, so without this they could overflow with no way to reach the
+   ones pushed past the bottom of a short window. */
+.settings-view__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
 }
 
 .settings-view__log {

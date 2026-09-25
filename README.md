@@ -100,6 +100,7 @@ The app polls Epic's match history API for each connected account, downloads any
 - See [Disclaimer](#disclaimer) above regarding the reverse-engineered API and the possibility of getting logged out of your party/social session while playing.
 - Epic's match history API only exposes a recent-matches window (the same one shown in-game — the most recent 20), so very old matches won't be found. The default poll interval comfortably covers this.
 - ballchasing.com's free API tier caps uploads at 10/day — anything beyond that is queued and retried automatically once the quota resets
+- Logins/reauth can fail with a "version mismatch" error after a Rocket League game update, since `dank/rlapi` reports a specific client version to Epic's servers and needs to be bumped to match. The app detects this itself and shows a dialog with a "Check for updates" button and a link to open a GitHub issue — a fixed release usually follows within a day or two of a game patch
 
 ## License
 

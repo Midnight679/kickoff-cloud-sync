@@ -6,6 +6,7 @@ import { AccountCard } from "./components/AccountCard";
 import { AddAccountWizard } from "./components/AddAccountWizard";
 import { ReauthDialog } from "./components/ReauthDialog";
 import { SettingsView } from "./components/SettingsView";
+import { VersionMismatchDialog } from "./components/VersionMismatchDialog";
 import "./App.css";
 
 const MAX_LOG_ENTRIES = 1000;
@@ -22,6 +23,7 @@ export default function App() {
   const [updateInfo, setUpdateInfo] = useState<UpdateInfo | null>(null);
   const [dismissedVersion, setDismissedVersion] = useState<string | null>(null);
   const [version, setVersion] = useState("");
+  const [versionMismatch, setVersionMismatch] = useState<string | null>(null);
 
   // Persistent until the account is actually reauthenticated — not
   // tied to any single event, so it stays correct across restarts and
@@ -69,6 +71,10 @@ export default function App() {
     const onCacheCleared = (p: EventPayload) => appendLog(`[${p.account_id}] ${p.message} (${trigger(p)})`);
     const onNoMatches = (p: EventPayload) => appendLog(`[${p.account_id}] ${p.message} (${trigger(p)})`);
     const onReconnected = (p: EventPayload) => appendLog(`[${p.account_id}] ${p.message} (${trigger(p)})`);
+    const onVersionMismatch = (p: EventPayload) => {
+      appendLog(`Login failed — game version mismatch: ${p.message}`);
+      setVersionMismatch(p.message ?? "");
+    };
 
     EventsOn("accounts-changed", refreshAccounts);
     EventsOn("match-detected", onMatch);
@@ -78,6 +84,7 @@ export default function App() {
     EventsOn("cache-cleared", onCacheCleared);
     EventsOn("no-matches", onNoMatches);
     EventsOn("reconnected", onReconnected);
+    EventsOn("version-mismatch", onVersionMismatch);
 
     return () => {
       EventsOff("accounts-changed");
@@ -88,6 +95,7 @@ export default function App() {
       EventsOff("cache-cleared");
       EventsOff("no-matches");
       EventsOff("reconnected");
+      EventsOff("version-mismatch");
     };
   }, [refreshAccounts, appendLog]);
 
@@ -172,6 +180,10 @@ export default function App() {
           }}
           onCancel={() => setModal(null)}
         />
+      )}
+
+      {versionMismatch !== null && (
+        <VersionMismatchDialog message={versionMismatch} onClose={() => setVersionMismatch(null)} />
       )}
 
       {version && (

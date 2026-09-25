@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.2.12
+- **Fixed logins failing with "version mismatch"** after a Rocket League game update — bumped the `dank/rlapi` dependency to the current game version.
+- **The app now detects a version mismatch itself** and shows a dialog explaining it, with a "Check for updates" button and a link to open a GitHub issue, instead of just a generic auth-error log line.
+- **Fixed content getting cut off with no way to scroll** on a short window (e.g. keeping the app small on a second monitor) — both the account list and the Settings screen now scroll properly when their content doesn't fit.
+
 ## 0.2.11
 - Internal efficiency improvements, no user-visible behavior change: skipped a redundant JSON marshal on every upload, replay downloads now share the app's tuned HTTP connection pool, the event/server logs render more efficiently as they grow, and a couple of small allocation trims.
 
