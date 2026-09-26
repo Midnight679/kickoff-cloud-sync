@@ -271,7 +271,7 @@ func (m *Manager) attemptCachedUpload(dir, fileName, accountID, matchID string, 
 
 	_ = os.Remove(fullPath)
 	m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
-	go m.finalizeReplay(accountID, token, result.ID, displayName)
+	m.startFinalize(accountID, token, result.ID, displayName)
 	return cachedUploadSucceeded
 }
 

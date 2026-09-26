@@ -95,15 +95,68 @@ type runtimeState struct {
 	// streak only matters within a live session. groupMu serializes
 	// the finalizeReplay goroutines this account's uploads launch, so
 	// two private uploads handled back-to-back (e.g. catching up on a
-	// backlog) don't race on this state — those goroutines are
-	// launched in match order, though this lock alone doesn't
-	// guarantee they acquire it in that same order under heavy
-	// scheduler contention, an acceptable tradeoff given how rare
-	// multi-match bursts are in practice.
+	// backlog) don't corrupt this state by writing it concurrently —
+	// see groupTurn below for making sure they also run in the right
+	// order, not just one-at-a-time in whatever order they happen to
+	// arrive.
 	groupMu             sync.Mutex
 	lastPrivateTeamPair [2]string
 	lastPrivateReplayID string
 	lastPrivateGroupID  string
+
+	// groupTurn orders assignReplayGroup calls to match handleMatch's
+	// call order, not finalizeReplay goroutine completion order.
+	// finalizeReplay must wait on GetReplayWithRetry (team names aren't
+	// known until ballchasing finishes parsing, which can take several
+	// seconds) before it can call assignReplayGroup — with several
+	// matches in flight for the same account, whichever one's parse
+	// finishes first used to win, regardless of which match actually
+	// happened first. If an unrelated match (a non-private upload, or
+	// one with a different team pair) happened to finish first in that
+	// race, it would reset the streak before the real next match in the
+	// series arrived, silently splitting one continuous series into two
+	// separate ballchasing groups.
+	//
+	// Each finalizeReplay call captures the previous match's turn
+	// (closed once that match's own assignReplayGroup call has
+	// returned) before installing a fresh one for whichever match comes
+	// next, so it can wait its turn after its own (independently timed)
+	// GetReplayWithRetry call finishes. Lazily initialized to an
+	// already-closed channel on first use (see startFinalize) so the
+	// very first match for an account doesn't wait on anything.
+	groupTurn chan struct{}
+}
+
+// closedGroupTurn returns an already-closed channel — the initial
+// value of runtimeState.groupTurn, so the first match handled for an
+// account proceeds immediately instead of waiting on a turn nothing
+// will ever signal.
+func closedGroupTurn() chan struct{} {
+	ch := make(chan struct{})
+	close(ch)
+	return ch
+}
+
+// startFinalize hands finalizeReplay this account's group-ordering
+// baton (see runtimeState.groupTurn) before launching it, so its
+// eventual assignReplayGroup call is held until every match discovered
+// before this one has already had its turn — see groupTurn's own
+// comment for why that matters. Safe to call even if the account's
+// runtime entry is gone (e.g. removed mid-poll): finalizeReplay treats
+// nil turns as "don't wait."
+func (m *Manager) startFinalize(accountID, token, replayID, displayName string) {
+	m.mu.Lock()
+	var myTurn, nextTurn chan struct{}
+	if rt := m.runtimes[accountID]; rt != nil {
+		if rt.groupTurn == nil {
+			rt.groupTurn = closedGroupTurn()
+		}
+		myTurn = rt.groupTurn
+		nextTurn = make(chan struct{})
+		rt.groupTurn = nextTurn
+	}
+	m.mu.Unlock()
+	go m.finalizeReplay(accountID, token, replayID, displayName, myTurn, nextTurn)
 }
 
 // PollResult summarizes what a single poll cycle did for one
@@ -1409,7 +1462,7 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 
 	_ = m.persist()
 	m.emit(EventUploadComplete, EventPayload{AccountID: accountID, MatchID: matchID, Message: result.Location, Manual: manual})
-	go m.finalizeReplay(accountID, token, result.ID, displayName)
+	m.startFinalize(accountID, token, result.ID, displayName)
 	return true, true
 }
 
@@ -1420,10 +1473,24 @@ func (m *Manager) handleMatch(ctx context.Context, accountID, matchID, replayURL
 // the scrim-series grouping heuristic (see assignReplayGroup).
 // Neither is treated as a failure if it doesn't work out — the
 // upload itself already succeeded either way. Run in its own
-// goroutine since GetReplayWithRetry can take several seconds
-// waiting on ballchasing's processing, and there's no need to hold up
-// the poll cycle for it.
-func (m *Manager) finalizeReplay(accountID, token, replayID, accountDisplayName string) {
+// goroutine (see startFinalize) since GetReplayWithRetry can take
+// several seconds waiting on ballchasing's processing, and there's no
+// need to hold up the poll cycle for it.
+//
+// myTurn/nextTurn are this account's group-ordering baton (see
+// runtimeState.groupTurn) — nil for either means "don't wait"/"nothing
+// to release," which happens if the account's runtime entry was gone
+// by the time startFinalize ran.
+func (m *Manager) finalizeReplay(accountID, token, replayID, accountDisplayName string, myTurn, nextTurn chan struct{}) {
+	if nextTurn != nil {
+		// Unconditional and first thing: whatever happens below, the
+		// next match waiting on this one must eventually be released,
+		// or it hangs forever — this account's grouping (and nothing
+		// else; the baton is scoped to this one account) would silently
+		// stop working until the app restarts.
+		defer close(nextTurn)
+	}
+
 	details, err := uploader.GetReplayWithRetry(token, replayID)
 	if err != nil {
 		log.Printf("could not fetch replay details to finalize %s: %v", replayID, err)
@@ -1435,6 +1502,14 @@ func (m *Manager) finalizeReplay(accountID, token, replayID, accountDisplayName 
 		log.Printf("could not set replay title for %s: %v", replayID, err)
 	}
 
+	if myTurn != nil {
+		// Waits for every match discovered before this one to have its
+		// own assignReplayGroup call already applied — GetReplayWithRetry
+		// above runs independently per match and doesn't reliably finish
+		// in discovery order, but the grouping streak below depends on
+		// seeing matches in that order to detect a series correctly.
+		<-myTurn
+	}
 	m.assignReplayGroup(accountID, token, replayID, details)
 }
 

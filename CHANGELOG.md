@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.14
+- **Fixed private match series occasionally splitting into two ballchasing groups.** Each match's group assignment has to wait on ballchasing's own parsing step, which can take several seconds and doesn't reliably finish in the order the matches actually happened — an unrelated match finishing that wait first could reset the series tracking before the real next match arrived. Matches are now processed in their real order regardless of how long each one's wait takes.
+
 ## 0.2.13
 - **Each account card now shows how long ago its last poll ran** (e.g. "9:17:25 AM (5 minutes ago)"), updating live.
 
