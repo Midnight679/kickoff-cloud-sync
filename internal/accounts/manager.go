@@ -88,7 +88,7 @@ type runtimeState struct {
 	// this is "what just happened," not history.
 	lastPoll *PollResult
 
-	// groupMu, lastPrivateTeamPair, lastPrivateReplayID and
+	// groupMu, lastPrivateTeamPair, pendingPrivateReplayIDs and
 	// lastPrivateGroupID back the private-scrim-series grouping
 	// heuristic in assignReplayGroup — see its comment for the actual
 	// logic. Like lastPoll, deliberately not persisted: a group
@@ -101,8 +101,23 @@ type runtimeState struct {
 	// arrive.
 	groupMu             sync.Mutex
 	lastPrivateTeamPair [2]string
-	lastPrivateReplayID string
-	lastPrivateGroupID  string
+
+	// pendingPrivateReplayIDs accumulates every match seen for the
+	// current tracked pair that hasn't been successfully placed in a
+	// ballchasing group yet. Normally holds just one (the streak's
+	// first match, waiting on a second to confirm it) and gets swept
+	// into the newly created group and cleared. If uploader.CreateGroup
+	// itself fails (ballchasing outage, rate limit outlasting
+	// doWithRetry's attempts), it keeps growing instead of being reset
+	// to just the latest match — the next same-pair match retries
+	// creation and, if it succeeds, sweeps in everything accumulated so
+	// far. The original design held only a single replay ID here and
+	// overwrote it with the current match on a CreateGroup failure,
+	// which permanently dropped the earlier match from ever being
+	// grouped — observed in practice as several consecutive matches
+	// against the same opponent all ending up in no group at all.
+	pendingPrivateReplayIDs []string
+	lastPrivateGroupID      string
 
 	// groupTurn orders assignReplayGroup calls to match handleMatch's
 	// call order, not finalizeReplay goroutine completion order.
@@ -1536,7 +1551,20 @@ func (m *Manager) assignReplayGroup(accountID, token, replayID string, details *
 	if !enabled || rt == nil {
 		return
 	}
+	assignReplayGroupTo(rt, token, replayID, details, uploader.CreateGroup, uploader.SetReplayGroup)
+}
 
+// assignReplayGroupTo is assignReplayGroup's actual logic, with the two
+// ballchasing calls it makes taken as parameters purely so tests can
+// substitute a fake createGroup that fails deterministically (and
+// instantly — no network, no doWithRetry backoff) to exercise that
+// path, which a real ballchasing outage or rate limit would otherwise
+// take real API failures to reach.
+func assignReplayGroupTo(
+	rt *runtimeState, token, replayID string, details *uploader.ReplayDetails,
+	createGroup func(token, name string) (*uploader.CreateGroupResult, error),
+	setReplayGroup func(token, replayID, groupID string) error,
+) {
 	pair, ok := uploader.CustomTeamPair(details)
 
 	rt.groupMu.Lock()
@@ -1544,39 +1572,56 @@ func (m *Manager) assignReplayGroup(accountID, token, replayID string, details *
 
 	if !ok {
 		rt.lastPrivateTeamPair = [2]string{}
-		rt.lastPrivateReplayID = ""
+		rt.pendingPrivateReplayIDs = nil
 		rt.lastPrivateGroupID = ""
 		return
 	}
 
-	if rt.lastPrivateReplayID == "" || rt.lastPrivateTeamPair != pair {
+	if rt.lastPrivateTeamPair != pair {
 		// First match of a new (or first-ever) pair — track it, but
-		// don't create a group until a second match confirms it.
+		// don't create a group until a second match confirms it. pair
+		// is never the zero value here (CustomTeamPair only returns
+		// ok=true when both teams have real custom names), so this
+		// alone also correctly covers the very first private match an
+		// account ever sees, when lastPrivateTeamPair is still unset.
 		rt.lastPrivateTeamPair = pair
-		rt.lastPrivateReplayID = replayID
+		rt.pendingPrivateReplayIDs = []string{replayID}
 		rt.lastPrivateGroupID = ""
 		return
 	}
 
 	groupID := rt.lastPrivateGroupID
 	if groupID == "" {
+		// Second (or later, if creating the group failed before)
+		// consecutive match against this pair — now confirmed as an
+		// actual series, so create the group and sweep in every match
+		// accumulated so far, not just this one.
+		rt.pendingPrivateReplayIDs = append(rt.pendingPrivateReplayIDs, replayID)
+
 		name := fmt.Sprintf("%s vs %s — %s", pair[0], pair[1], time.Now().Format("Jan 2"))
-		result, err := uploader.CreateGroup(token, name)
+		result, err := createGroup(token, name)
 		if err != nil {
 			log.Printf("could not create ballchasing group %q: %v", name, err)
-			rt.lastPrivateReplayID = replayID
+			// Deliberately not clearing pendingPrivateReplayIDs: every
+			// match accumulated so far, including this one, stays
+			// queued so the next same-pair match retries creation and
+			// sweeps them all in together, instead of this failure
+			// silently dropping them from ever being grouped.
 			return
 		}
 		groupID = result.ID
-		if err := uploader.SetReplayGroup(token, rt.lastPrivateReplayID, groupID); err != nil {
-			log.Printf("could not add earlier replay %s to group %s: %v", rt.lastPrivateReplayID, groupID, err)
-		}
 		rt.lastPrivateGroupID = groupID
+		for _, id := range rt.pendingPrivateReplayIDs {
+			if err := setReplayGroup(token, id, groupID); err != nil {
+				log.Printf("could not add replay %s to group %s: %v", id, groupID, err)
+			}
+		}
+		rt.pendingPrivateReplayIDs = nil
+		return
 	}
-	if err := uploader.SetReplayGroup(token, replayID, groupID); err != nil {
+	if err := setReplayGroup(token, replayID, groupID); err != nil {
 		log.Printf("could not add replay %s to group %s: %v", replayID, groupID, err)
 	}
-	rt.lastPrivateReplayID = replayID
 }
 
 // closeRPC shuts down a PsyNet connection this app no longer needs.

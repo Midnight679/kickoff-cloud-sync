@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.15
+- **Fixed private match series still occasionally landing with no ballchasing group at all**, even after 0.2.14's fix. If creating the group failed (e.g. a transient rate limit while several other series were also being confirmed in the same poll), the match that triggered it was silently dropped instead of retried — losing every earlier match in that series along with it. Every match is now kept and swept into the group once creation actually succeeds.
+
 ## 0.2.14
 - **Fixed private match series occasionally splitting into two ballchasing groups.** Each match's group assignment has to wait on ballchasing's own parsing step, which can take several seconds and doesn't reliably finish in the order the matches actually happened — an unrelated match finishing that wait first could reset the series tracking before the real next match arrived. Matches are now processed in their real order regardless of how long each one's wait takes.
 
