@@ -1590,14 +1590,19 @@ func assignReplayGroupTo(
 		return
 	}
 
+	// Every consecutive match against this pair queues here first,
+	// regardless of whether the group already exists — so a replay
+	// that fails to join an already-created group (same rate-limit
+	// risk as a failed CreateGroup) is retried below alongside
+	// whatever match triggers the next attempt, instead of being
+	// dropped the moment setReplayGroup fails.
+	rt.pendingPrivateReplayIDs = append(rt.pendingPrivateReplayIDs, replayID)
+
 	groupID := rt.lastPrivateGroupID
 	if groupID == "" {
 		// Second (or later, if creating the group failed before)
 		// consecutive match against this pair — now confirmed as an
-		// actual series, so create the group and sweep in every match
-		// accumulated so far, not just this one.
-		rt.pendingPrivateReplayIDs = append(rt.pendingPrivateReplayIDs, replayID)
-
+		// actual series, so create the group.
 		name := fmt.Sprintf("%s vs %s — %s", pair[0], pair[1], time.Now().Format("Jan 2"))
 		result, err := createGroup(token, name)
 		if err != nil {
@@ -1611,17 +1616,19 @@ func assignReplayGroupTo(
 		}
 		groupID = result.ID
 		rt.lastPrivateGroupID = groupID
-		for _, id := range rt.pendingPrivateReplayIDs {
-			if err := setReplayGroup(token, id, groupID); err != nil {
-				log.Printf("could not add replay %s to group %s: %v", id, groupID, err)
-			}
+	}
+
+	// Sweep every match still pending — not just this one — into the
+	// group, keeping only the ones that fail queued for the next
+	// same-pair match to retry.
+	var stillPending []string
+	for _, id := range rt.pendingPrivateReplayIDs {
+		if err := setReplayGroup(token, id, groupID); err != nil {
+			log.Printf("could not add replay %s to group %s: %v", id, groupID, err)
+			stillPending = append(stillPending, id)
 		}
-		rt.pendingPrivateReplayIDs = nil
-		return
 	}
-	if err := setReplayGroup(token, replayID, groupID); err != nil {
-		log.Printf("could not add replay %s to group %s: %v", replayID, groupID, err)
-	}
+	rt.pendingPrivateReplayIDs = stillPending
 }
 
 // closeRPC shuts down a PsyNet connection this app no longer needs.
