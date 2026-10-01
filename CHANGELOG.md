@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.16
+- **Fixed another way a private match series could end up with an orphaned replay.** 0.2.15 fixed a failed group-creation call silently dropping matches; this fixes the same failure mode for a match that fails to *join* a group that already exists — it's now retried on the next match in the series instead of being dropped for good.
+
 ## 0.2.15
 - **Fixed private match series still occasionally landing with no ballchasing group at all**, even after 0.2.14's fix. If creating the group failed (e.g. a transient rate limit while several other series were also being confirmed in the same poll), the match that triggered it was silently dropped instead of retried — losing every earlier match in that series along with it. Every match is now kept and swept into the group once creation actually succeeds.
 
