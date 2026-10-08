@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.17
+- **Updated for the latest Rocket League patch** — bumped the `dank/rlapi` dependency to v0.1.27 so logins don't fail with "version mismatch" after the game update.
+
 ## 0.2.16
 - **Fixed another way a private match series could end up with an orphaned replay.** 0.2.15 fixed a failed group-creation call silently dropping matches; this fixes the same failure mode for a match that fails to *join* a group that already exists — it's now retried on the next match in the series instead of being dropped for good.
 
