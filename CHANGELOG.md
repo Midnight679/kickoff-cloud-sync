@@ -1,5 +1,8 @@
 # Changelog
 
+## 0.2.18
+- **Updated for the latest Rocket League patch** — bumped the `dank/rlapi` dependency to v0.1.28 (game build `261013.63066.530866`) so logins don't fail with "version mismatch" after the game update.
+
 ## 0.2.17
 - **Updated for the latest Rocket League patch** — bumped the `dank/rlapi` dependency to v0.1.27 so logins don't fail with "version mismatch" after the game update.
 
